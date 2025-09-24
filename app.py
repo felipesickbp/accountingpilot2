@@ -497,66 +497,65 @@ elif st.session_state.step == 2:
     src_for_mapping = st.session_state.get("bank_csv_view_df", None)
 
     # --- mapping UI only when we truly have rows ---
-    if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
-        st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
+if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
+    st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
 
-        # Only these are mapped by the user
-        # (All headers except our synthetic csv_row are available)
-        cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
+    # Only these are mapped by the user (all headers except synthetic csv_row)
+    cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
 
-        c1, c2 = st.columns(2)
-        st.session_state.bank_map["datum"]  = c1.selectbox("datum", options=cols, index=0)
-        st.session_state.bank_map["betrag"] = c2.selectbox("betrag (positiv = Debit / negativ = Kredit)", options=cols, index=0)
+    c1, c2 = st.columns(2)
+    st.session_state.bank_map["datum"]  = c1.selectbox("datum", options=cols, index=0)
+    st.session_state.bank_map["betrag"] = c2.selectbox("betrag (positiv = Debit / negativ = Kredit)", options=cols, index=0)
 
-        c3, _ = st.columns([2,1])
-        st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
+    c3, _ = st.columns([2,1])
+    st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
 
-        # Safe picker: always returns a Series matching src_for_mapping length
-        def pick(key: str) -> pd.Series:
-            sel = st.session_state.bank_map.get(key)
-            if sel and sel in src_for_mapping.columns:
-                return src_for_mapping[sel]
-            return pd.Series([""] * len(src_for_mapping), index=src_for_mapping.index, dtype="string")
+    # Safe picker: always returns a Series matching src_for_mapping length
+    def pick(key: str) -> pd.Series:
+        sel = st.session_state.bank_map.get(key)
+        if sel and sel in src_for_mapping.columns:
+            return src_for_mapping[sel]
+        return pd.Series([""] * len(src_for_mapping), index=src_for_mapping.index, dtype="string")
 
-       def convert_to_grid_and_advance():
+    def convert_to_grid_and_advance():
         src = src_for_mapping
-    
+
         df_new = pd.DataFrame({
-            "csv_row":        src["csv_row"],                        # keep for traceability (hidden in editor)
+            "csv_row":        src["csv_row"],                        # keep for traceability (hidden later)
             "buchungsnummer": "",                                    # left blank (auto-ref later)
             "datum":          pick("datum").apply(_parse_date_to_iso),
-            "beschreibung":   pick("beschreibung").astype(str),      # rename to 'beschreibung' early
+            "beschreibung":   pick("beschreibung").astype(str),      # normalized name early
             "betrag":         pick("betrag").apply(_to_float),
             "soll":           "",                                    # auto-fill by bank/sign if set
             "haben":          "",
         })
-    
+
         # Default date if parsing failed everywhere
         if (df_new["datum"] == "").all():
             df_new["datum"] = dt_date.today().isoformat()
-    
-        # Assign selected bank account to soll/haben by sign (only if empty in target)
+
+        # Assign bank account to soll/haben by sign (only if empty in target)
         if st.session_state.selected_bank_number:
             pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
             neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
             df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
             df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
-    
-        # Make amount absolute now (UI & API expect positive + side given by debit/credit)
+
+        # Amount must be positive; side is encoded by debit/credit
         df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce").abs()
-    
-        # Normalize full schema & types (keeps csv_row as Int64, rest strings/floats)
+
+        # Normalize schema/dtypes (keeps csv_row as Int64, betrag float, others str)
         st.session_state.bulk_df = ensure_schema(df_new)
-    
+
         # Advance to step 3
         st.session_state.step = 3
         st.rerun()
 
+    # Single button that converts AND advances
+    st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
+else:
+    st.info("Lade eine Datei und wähle eine gültige Startzeile, um fortzufahren.")
 
-        # Single button that converts AND advances
-        st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
-    else:
-        st.info("Lade eine Datei und wähle eine gültige Startzeile, um fortzufahren.")
 
 
 # =========================
@@ -569,50 +568,55 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
-    # Only the 6 fields Bexio needs in the editor
-    EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
-    
-    with st.form("bulk_entries_form", clear_on_submit=False):
-        # Pass only the visible columns to the editor
-        edited_view = st.data_editor(
-            st.session_state.bulk_df[EDIT_COLS],
-            key="bulk_grid",
-            num_rows="dynamic",
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "buchungsnummer": st.column_config.TextColumn("number (auto if empty)"),
-                "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
-                "beschreibung":   st.column_config.TextColumn("label / description"),
-                "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
-                "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
-                "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-            }
-        )
-        colA, colB = st.columns(2)
-        auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
-        submitted  = colB.form_submit_button("Buchungen posten", type="primary")
-    
-    # Write edited values back into the full DF (csv_row stays intact and hidden)
-    st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
-    
-    # Ensure schema/dtypes again (keeps csv_row as Int64, betrag as float, others as str)
-    st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
+# Only the 6 fields Bexio needs in the editor
+EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
 
+with st.form("bulk_entries_form", clear_on_submit=False):
+    # Pass only the visible columns to the editor
+    edited_view = st.data_editor(
+        st.session_state.bulk_df[EDIT_COLS],
+        key="bulk_grid",
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "buchungsnummer": st.column_config.TextColumn("number (auto if empty)"),
+            "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
+            "beschreibung":   st.column_config.TextColumn("label / description"),
+            "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
+            "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
+            "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
+        }
+    )
+    colA, colB = st.columns(2)
+    auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
+    submitted  = colB.form_submit_button("Buchungen posten", type="primary")
 
-   if submitted:
-    # Work directly on a copy; do NOT use .fillna("") on mixed dtypes (breaks Int64)
+# Write edited values back into the full DF (csv_row stays intact and hidden)
+st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
+
+# Ensure schema/dtypes again (keeps csv_row as Int64, betrag as float, others as str)
+st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
+
+if submitted:
+    # Do NOT use .fillna("") on mixed dtypes (breaks Int64); use safe accessors instead
     rows = st.session_state.bulk_df.copy()
 
     if rows.empty:
         st.warning("Keine Zeilen im Gitter.")
     else:
         results = []
+
         for idx, row in rows.iterrows():
             try:
                 # Safe getters that handle <NA> / None
                 def _s(x):
-                    return "" if (x is None or (isinstance(x, float) and pd.isna(x)) or (pd.isna(x) if hasattr(pd, "isna") else False)) else str(x)
+                    try:
+                        if x is None or (isinstance(x, float) and pd.isna(x)) or pd.isna(x):
+                            return ""
+                    except Exception:
+                        pass
+                    return str(x)
 
                 def _f(x):
                     try:
@@ -636,7 +640,7 @@ elif st.session_state.step == 3:
                 if not date_iso:
                     raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
 
-                # Amount: already absolute from Step 2, but enforce again for safety
+                # Amount: already absolute from Step 2; enforce again
                 amount = abs(_f(row.get("betrag")))
                 if amount == 0:
                     raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
@@ -689,19 +693,5 @@ elif st.session_state.step == 3:
                     continue
 
                 r.raise_for_status()
-                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
+                results.append({"row": idx + 1, "csv_row": row.ge_
 
-            except requests.HTTPError as e:
-                try:
-                    err_txt = e.response.text
-                except Exception:
-                    err_txt = str(e)
-                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": f"HTTP {e.response.status_code}", "error": err_txt})
-            except Exception as e:
-                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "ERROR", "error": str(e)})
-
-        if not results:
-            st.info("Keine gültigen Zeilen zum Posten gefunden.")
-        else:
-            st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
-            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
