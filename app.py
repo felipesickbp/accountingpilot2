@@ -435,8 +435,7 @@ elif st.session_state.step == 2:
 
     bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
     col_enc1, col_enc2 = st.columns([2,1])
-    encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=0)
-    decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
+
 
     if bank_file is not None:
         try:
