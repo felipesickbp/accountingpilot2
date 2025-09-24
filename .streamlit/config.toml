@@ -1,0 +1,10 @@
+# .streamlit/config.toml
+[theme]
+primaryColor="#0F1D2B"           # Deep navy accents
+backgroundColor="#FFFFFF"         # White base
+secondaryBackgroundColor="#F5F7FA" # Soft gray for cards/expander/editor
+textColor="#0F1D2B"               # Dark navy text
+font="sans serif"                 # Crisp, modern
+
+[browser]
+gatherUsageStats = false
