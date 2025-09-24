@@ -127,6 +127,44 @@ def resolve_account_id_from_number_or_id(val):
         return None
 
 
+def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFrame:
+    """Fill soll/haben based on keyword rules. Does NOT overwrite existing non-empty cells."""
+    if df is None or df.empty or not rules:
+        return df
+    out = df.copy()
+    # normalize columns we touch
+    for col in ["beschreibung", "soll", "haben"]:
+        if col not in out.columns:
+            out[col] = ""
+        out[col] = out[col].astype(str)
+
+    amt = pd.to_numeric(out.get("betrag", 0), errors="coerce").fillna(0)
+
+    for r in rules:
+        kw = str(r.get("keyword", "")).strip()
+        acct = str(r.get("account", "")).strip()
+        side = str(r.get("side", "haben")).strip().lower()  # "soll" | "haben" | "auto"
+        if not kw or not acct:
+            continue
+
+        mask_kw = out["beschreibung"].str.contains(kw, case=False, na=False)
+
+        if side == "soll":
+            empty = out["soll"].str.strip() == ""
+            out.loc[mask_kw & empty, "soll"] = acct
+        elif side == "haben":
+            empty = out["haben"].str.strip() == ""
+            out.loc[mask_kw & empty, "haben"] = acct
+        else:
+            # auto by sign: +amount -> soll, -amount -> haben
+            empty_s = out["soll"].str.strip() == ""
+            empty_h = out["haben"].str.strip() == ""
+            out.loc[mask_kw & (amt > 0) & empty_s, "soll"] = acct
+            out.loc[mask_kw & (amt < 0) & empty_h, "haben"] = acct
+
+    return out
+
+
 def _make_unique_columns(cols, prefix="col"):
     out, seen = [], {}
     for i, c in enumerate(cols, start=1):
@@ -489,6 +527,61 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
+    # --- Keyword → Konto rules (persist in session) ---
+    if "keyword_rules" not in st.session_state:
+        # Example defaults (you can remove/change)
+        st.session_state.keyword_rules = [
+            {"keyword": "Polizei",        "account": "2100", "side": "haben"},
+            {"keyword": "Bancomatbezug",  "account": "1000", "side": "auto"},
+        ]
+    if "show_kw_rules" not in st.session_state:
+        st.session_state.show_kw_rules = False
+
+    cols_head = st.columns([1, 3, 2])
+    if cols_head[0].button("🔎 Schlüsselwörter", key="toggle_kw_rules"):
+        st.session_state.show_kw_rules = not st.session_state.show_kw_rules
+
+    if st.session_state.show_kw_rules:
+        with st.expander("Schlüsselwörter → Konto-Zuordnung (automatisch ausfüllen)", expanded=True):
+            k1, k2, k3, k4 = st.columns([2, 2, 2, 1])
+            new_kw   = k1.text_input("Keyword (z.B. Polizei)", key="kw_new_keyword")
+            new_kto  = k2.text_input("Konto (Kontonummer oder account_id)", key="kw_new_account")
+            new_side = k3.selectbox("Zielspalte", ["haben", "soll", "auto (nach Vorzeichen)"], index=0, key="kw_new_side")
+
+            def _normalize_side(s: str) -> str:
+                s = (s or "").lower()
+                if s.startswith("auto"): return "auto"
+                return "soll" if s == "soll" else "haben"
+
+            if k4.button("➕ Regel hinzufügen", key="kw_add_btn"):
+                if new_kw.strip() and new_kto.strip():
+                    st.session_state.keyword_rules.append({
+                        "keyword": new_kw.strip(),
+                        "account": new_kto.strip(),
+                        "side": _normalize_side(new_side),
+                    })
+                    # clear inputs
+                    st.session_state.kw_new_keyword = ""
+                    st.session_state.kw_new_account = ""
+
+            # show rules
+            if st.session_state.keyword_rules:
+                st.dataframe(
+                    pd.DataFrame(st.session_state.keyword_rules),
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.info("Noch keine Regeln erfasst.")
+
+            # Apply rules immediately to the working grid
+            if st.button("⚙️ Regeln anwenden", type="primary", key="kw_apply_btn"):
+                st.session_state.bulk_df = apply_keyword_rules_to_df(
+                    st.session_state.bulk_df, st.session_state.keyword_rules
+                )
+                st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
+                st.rerun()
+
+    # --- Editable grid (only Bexio-relevant columns) ---
     EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
 
     with st.form("bulk_entries_form", clear_on_submit=False):
@@ -616,5 +709,3 @@ elif st.session_state.step == 3:
             else:
                 st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
-
-
