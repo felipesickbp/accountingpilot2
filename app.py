@@ -693,5 +693,20 @@ if submitted:
                     continue
 
                 r.raise_for_status()
-                results.append({"row": idx + 1, "csv_row": row.ge_
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
+
+            except requests.HTTPError as e:
+                try:
+                    err_txt = e.response.text
+                except Exception:
+                    err_txt = str(e)
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": f"HTTP {e.response.status_code}", "error": err_txt})
+            except Exception as e:
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "ERROR", "error": str(e)})
+
+        if not results:
+            st.info("Keine gültigen Zeilen zum Posten gefunden.")
+        else:
+            st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
+            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
 
