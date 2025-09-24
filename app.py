@@ -45,6 +45,10 @@ REQUIRED_COLS = ["csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben"
 
 def ensure_schema(df_in: pd.DataFrame) -> pd.DataFrame:
     """Return a copy with exactly the REQUIRED_COLS and safe dtypes for data_editor."""
+    # If input is None, start from an empty frame
+    if df_in is None:
+        df_in = pd.DataFrame()
+
     df = pd.DataFrame(columns=REQUIRED_COLS)
     for c in REQUIRED_COLS:
         df[c] = df_in[c] if c in df_in.columns else ""
@@ -54,10 +58,15 @@ def ensure_schema(df_in: pd.DataFrame) -> pd.DataFrame:
         df["csv_row"] = pd.to_numeric(df["csv_row"], errors="coerce").astype("Int64")
     except Exception:
         df["csv_row"] = pd.Series([pd.NA]*len(df), dtype="Int64")
+
     df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
-    for c in ["buchungsnummer","datum","soll","haben","beschreibung"]:
+
+    for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung"]:
+        # keep as string dtype for editor stability
         df[c] = df[c].astype(str)
+
     return df
+
 
 def _parse_date_to_iso(x: str) -> str:
     s = (str(x) if x is not None else "").strip()
@@ -116,14 +125,82 @@ def _make_unique_columns(cols, prefix="col"):
     return out
 
 def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
-    """Robust CSV reader; also supports xlsx disguised as csv. Ensures unique headers and reserves 'csv_row'."""
+    """
+    Robust reader for CSV or Excel (xlsx disguised as csv).
+    - Ensures unique, non-empty column names
+    - Reserves 'csv_row' name (renames existing to 'csv_row_file')
+    - Tries multiple encodings and delimiters
+    - If header parsing fails, falls back to header=None and synthesizes column names
+    Returns a pandas DataFrame (never None) or raises ValueError.
+    """
     raw = uploaded_file.getvalue()
 
-    # Excel?
-    if raw[:4] == b"PK\x03\x04":
-        df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
+    # Detect Excel by magic number
+    if len(raw) >= 4 and raw[:4] == b"PK\x03\x04":
+        try:
+            df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
+        except Exception as e:
+            raise ValueError(f"Excel-Datei konnte nicht gelesen werden: {e}")
+
         df.columns = _make_unique_columns(df.columns, prefix="col")
-        # If file already has a column named 'csv_row',_
+        # Reserve 'csv_row'
+        if "csv_row" in df.columns:
+            df = df.rename(columns={"csv_row": "csv_row_file"})
+        return df
+
+    # Try CSV with various encodings and delimiters
+    encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
+    delimiters = [None, ";", ",", "\t", "|"]
+    errors = []
+
+    for enc in encodings:
+        for sep in delimiters:
+            # 1) Try with header row
+            try:
+                df = pd.read_csv(
+                    io.BytesIO(raw),
+                    sep=sep,
+                    engine="python",
+                    encoding=enc,
+                    decimal=decimal,
+                    dtype=str,
+                    keep_default_na=False,
+                    header=0,
+                )
+                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
+                    df.columns = _make_unique_columns(df.columns, prefix="col")
+                    if "csv_row" in df.columns:
+                        df = df.rename(columns={"csv_row": "csv_row_file"})
+                    return df
+            except Exception as e:
+                errors.append(f"header=0 {enc}/{repr(sep)} → {e}")
+
+            # 2) Fallback: no header in file (treat first row as data)
+            try:
+                df = pd.read_csv(
+                    io.BytesIO(raw),
+                    sep=sep,
+                    engine="python",
+                    encoding=enc,
+                    decimal=decimal,
+                    dtype=str,
+                    keep_default_na=False,
+                    header=None,
+                )
+                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
+                    # Synthesize column names
+                    df.columns = _make_unique_columns([f"col_{i+1}" for i in range(df.shape[1])], prefix="col")
+                    if "csv_row" in df.columns:
+                        df = df.rename(columns={"csv_row": "csv_row_file"})
+                    return df
+            except Exception as e:
+                errors.append(f"header=None {enc}/{repr(sep)} → {e}")
+
+    # If we got here, nothing worked
+    msg = "CSV konnte nicht gelesen werden. Versuche: " + "; ".join(errors[:6])
+    if len(errors) > 6:
+        msg += " …"
+    raise ValueError(msg)
 
 
 # =========================
@@ -380,6 +457,9 @@ elif st.session_state.step == 2:
         try:
             # robust reader with unique columns + csv_row protection
             st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding, decimal)
+            if st.session_state.bank_csv_df is None or not isinstance(st.session_state.bank_csv_df, pd.DataFrame):
+                raise ValueError("Die Datei konnte nicht in eine Tabelle umgewandelt werden.")
+
 
             st.markdown("**Ab welcher Zeile beginnen die Daten?** (1 = erste Zeile der Datei)")
             st.session_state.bank_start_row = st.number_input(
