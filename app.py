@@ -159,8 +159,74 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 # =========================
 # Accounts table (all accounts & IDs)
 # =========================
-with st.expander("📒 Konto-IDs aus deinem Mandanten (v3‑Quellen)"):
-    # ---- v2 Kontenplan import (read-only, builds number -> id mapping) ----
+with st.expander("📒 Konto-IDs aus deinem Mandanten (v3-Quellen)"):
+    try:
+        rows = []
+        # 1) Banking-linked GL accounts (reliable v3 endpoint)
+        try:
+            r = requests.get(f"{API_V3}/banking/accounts", headers=_auth(), timeout=30)
+            r.raise_for_status()
+            banks = r.json() if isinstance(r.json(), list) else []
+            for b in banks:
+                rows.append({
+                    "source": "banking",
+                    "account_id": b.get("account_id"),
+                    "label": b.get("name") or b.get("bank_name"),
+                    "note": f"IBAN {b.get('iban_nr')}"
+                })
+        except Exception as e:
+            st.warning(f"Bankkonten konnten nicht geladen werden: {e}")
+
+        # 2) Tax accounts (carry account ids)
+        try:
+            r = requests.get(f"{API_V3}/taxes?scope=active", headers=_auth(), timeout=30)
+            r.raise_for_status()
+            taxes = r.json() if isinstance(r.json(), list) else []
+            for t in taxes:
+                acc = t.get("account_id")
+                if acc:
+                    rows.append({
+                        "source": "tax",
+                        "account_id": acc,
+                        "label": t.get("display_name") or t.get("code"),
+                        "note": f"tax_id {t.get('id')}"
+                    })
+        except Exception as e:
+            st.info("Steuerkonten konnten nicht geladen werden (optional): " + str(e))
+
+        # 3) Journal scan (wide window)
+        try:
+            from datetime import date, timedelta
+            start = (date.today() - timedelta(days=3650)).isoformat()  # ~10 Jahre
+            r = requests.get(f"{API_V3}/accounting/journal?from={start}&limit=2000", headers=_auth(), timeout=30)
+            r.raise_for_status()
+            entries = r.json() if isinstance(r.json(), list) else []
+            seen = set()
+            for j in entries:
+                for k in ("debit_account_id", "credit_account_id"):
+                    a = j.get(k)
+                    if a and a not in seen:
+                        seen.add(a)
+                        rows.append({
+                            "source": "journal",
+                            "account_id": a,
+                            "label": j.get("description"),
+                            "note": "sichtbar in Journal"
+                        })
+        except Exception as e:
+            st.info("Journal konnte nicht geladen werden: " + str(e))
+
+        if rows:
+            df_ids = pd.DataFrame(rows).drop_duplicates(subset=["account_id"]).sort_values("account_id")
+            st.dataframe(df_ids, use_container_width=True, hide_index=True)
+            st.caption("Nutze die **account_id** in den Spalten ‘soll’/‘haben’. (Nur v3-Quellen.)")
+        else:
+            st.info("Keine Konto-IDs aus v3-Quellen gefunden.")
+    except Exception as e:
+        st.error(f"Fehler beim Ermitteln der Konto-IDs: {e}")
+
+
+# ---- v2 Kontenplan import (read-only, builds number -> id mapping) ----
 st.subheader("Kontenplan aus bexio importieren (READ via v2)")
 st.caption("Nur zum Einlesen der Mapping-Tabelle (account_no → id). Postings bleiben über v3.")
 
@@ -204,90 +270,6 @@ if do_import:
 if st.session_state.acct_df is not None:
     st.dataframe(st.session_state.acct_df, use_container_width=True, hide_index=True)
     st.caption("Diese Tabelle liefert die **externe ID** (= `id`) pro Kontonummer.")
-
-    try:
-        rows = []
-        # 1) Banking-linked GL accounts (reliable v3 endpoint)
-        try:
-            r = requests.get(f"{API_V3}/banking/accounts", headers=_auth(), timeout=30)
-            r.raise_for_status()
-            banks = r.json() if isinstance(r.json(), list) else []
-            for b in banks:
-                rows.append({
-                    "source": "banking",
-                    "account_id": b.get("account_id"),
-                    "label": b.get("name") or b.get("bank_name"),
-                    "note": f"IBAN {b.get('iban_nr')}"
-                })
-        except Exception as e:
-            st.warning(f"Bankkonten konnten nicht geladen werden: {e}")
-
-        # 2) Tax accounts (carry account ids, helpful for VAT posting context)
-        try:
-            r = requests.get(f"{API_V3}/taxes?scope=active", headers=_auth(), timeout=30)
-            r.raise_for_status()
-            taxes = r.json() if isinstance(r.json(), list) else []
-            for t in taxes:
-                acc = t.get("account_id")
-                if acc:
-                    rows.append({
-                        "source": "tax",
-                        "account_id": acc,
-                        "label": t.get("display_name") or t.get("code"),
-                        "note": f"tax_id {t.get('id')}"
-                    })
-        except Exception as e:
-            st.info("Steuerkonten konnten nicht geladen werden (optional): " + str(e))
-
-        # 3) Journal scan (wide window) to discover used account ids)
-        try:
-            from datetime import date, timedelta
-            start = (date.today() - timedelta(days=3650)).isoformat()  # ~10 Jahre
-            r = requests.get(f"{API_V3}/accounting/journal?from={start}&limit=2000", headers=_auth(), timeout=30)
-            r.raise_for_status()
-            entries = r.json() if isinstance(r.json(), list) else []
-            seen = set()
-            for j in entries:
-                for k in ("debit_account_id", "credit_account_id"):
-                    a = j.get(k)
-                    if a and a not in seen:
-                        seen.add(a)
-                        rows.append({
-                            "source": "journal",
-                            "account_id": a,
-                            "label": j.get("description"),
-                            "note": "sichtbar in Journal"
-                        })
-        except Exception as e:
-            st.info("Journal konnte nicht geladen werden: " + str(e))
-
-        if rows:
-            df_ids = pd.DataFrame(rows).drop_duplicates(subset=["account_id"]).sort_values("account_id")
-            st.dataframe(df_ids, use_container_width=True, hide_index=True)
-            st.caption("Nutze die **account_id** in den Spalten ‘soll’/‘haben’ unten. (Nur v3‑Datenquellen, kein v2.)")
-        else:
-            st.info("Keine Konto-IDs aus v3-Quellen gefunden.")
-    except Exception as e:
-        st.error(f"Fehler beim Ermitteln der Konto-IDs: {e}")
-
-st.subheader("Mehrere Buchungen erfassen")
-st.caption("Spalten: **buchungsnummer**, **datum**, **betrag**, **soll**, **haben**. ‘soll’/‘haben’ sind **account_id**-Werte.")
-
-# Default currency settings (keine UI – simpel halten)
-DEFAULT_CURRENCY_ID = 1  # CHF in den meisten Mandanten (anpassen falls nötig)
-DEFAULT_CURRENCY_FACTOR = 1.0
-
-# Create an initial empty grid if not present
-if st.session_state.bulk_df is None:
-    st.session_state.bulk_df = pd.DataFrame(
-        {
-            "buchungsnummer": ["" for _ in range(5)],
-            "datum": [dt_date.today() for _ in range(5)],
-            "betrag": [0.00 for _ in range(5)],
-            "soll": [None for _ in range(5)],
-            "haben": [None for _ in range(5)],
-        }
-    )
 
 # Render editable grid
 edited_df = st.data_editor(
