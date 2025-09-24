@@ -497,6 +497,7 @@ elif st.session_state.step == 2:
     src_for_mapping = st.session_state.get("bank_csv_view_df", None)
 
     # --- mapping UI only when we truly have rows ---
+# --- mapping UI only when we truly have rows ---
 if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
     st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
 
@@ -537,25 +538,6 @@ if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
         # Assign bank account to soll/haben by sign (only if empty in target)
         if st.session_state.selected_bank_number:
             pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
-            neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
-            df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
-            df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
-
-        # Amount must be positive; side is encoded by debit/credit
-        df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce").abs()
-
-        # Normalize schema/dtypes (keeps csv_row as Int64, betrag float, others str)
-        st.session_state.bulk_df = ensure_schema(df_new)
-
-        # Advance to step 3
-        st.session_state.step = 3
-        st.rerun()
-
-    # Single button that converts AND advances
-    st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
-else:
-    st.info("Lade eine Datei und wähle eine gültige Startzeile, um fortzufahren.")
-
 
 
 # =========================
@@ -568,36 +550,34 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
-# Only the 6 fields Bexio needs in the editor
-EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
+    # Only the 6 fields Bexio needs in the editor
+    EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
 
-with st.form("bulk_entries_form", clear_on_submit=False):
-    # Pass only the visible columns to the editor
-    edited_view = st.data_editor(
-        st.session_state.bulk_df[EDIT_COLS],
-        key="bulk_grid",
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "buchungsnummer": st.column_config.TextColumn("number (auto if empty)"),
-            "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
-            "beschreibung":   st.column_config.TextColumn("label / description"),
-            "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
-            "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
-            "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-        }
-    )
-    colA, colB = st.columns(2)
-    auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
-    submitted  = colB.form_submit_button("Buchungen posten", type="primary")
+    with st.form("bulk_entries_form", clear_on_submit=False):
+        edited_view = st.data_editor(
+            st.session_state.bulk_df[EDIT_COLS],
+            key="bulk_grid",
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "buchungsnummer": st.column_config.TextColumn("number (auto if empty)"),
+                "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
+                "beschreibung":   st.column_config.TextColumn("label / description"),
+                "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
+                "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
+                "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
+            }
+        )
+        colA, colB = st.columns(2)
+        auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
+        submitted  = colB.form_submit_button("Buchungen posten", type="primary")
 
-# Write edited values back into the full DF (csv_row stays intact and hidden)
-st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
+    # Write edited values back into the full DF (csv_row stays intact and hidden)
+    st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
 
-# Ensure schema/dtypes again (keeps csv_row as Int64, betrag as float, others as str)
-st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
-
+    # Ensure schema/dtypes again (keeps csv_row as Int64, betrag as float, others as str)
+    st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 if submitted:
     # Do NOT use .fillna("") on mixed dtypes (breaks Int64); use safe accessors instead
     rows = st.session_state.bulk_df.copy()
