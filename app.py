@@ -378,14 +378,22 @@ elif st.session_state.step == 2:
 
     if bank_file is not None:
         try:
+            # robust reader with unique columns + csv_row protection
             st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding, decimal)
+
             st.markdown("**Ab welcher Zeile beginnen die Daten?** (1 = erste Zeile der Datei)")
             st.session_state.bank_start_row = st.number_input(
                 "Startzeile (1-basiert)", min_value=1, value=int(st.session_state.bank_start_row), step=1
             )
+
             df_src = st.session_state.bank_csv_df
             df_view = df_src.iloc[st.session_state.bank_start_row - 1 :].copy()
-            df_view.insert(0, "csv_row", df_view.index + 1)  # original row numbers (1-based)
+
+            # if the file already had a csv_row, keep it but reserve our own
+            if "csv_row" in df_view.columns:
+                df_view = df_view.rename(columns={"csv_row": "csv_row_file"})
+            df_view.insert(0, "csv_row", df_view.index + 1)  # original 1-based row numbers
+
             st.session_state.bank_csv_view_df = df_view
 
             st.success(f"Verwende {len(df_view)} Datenzeilen ab Zeile {st.session_state.bank_start_row}.")
@@ -396,11 +404,14 @@ elif st.session_state.step == 2:
     src_for_mapping = st.session_state.get("bank_csv_view_df", None)
     if src_for_mapping is not None and not src_for_mapping.empty:
         st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
+
+        # user maps only these three
         cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
 
         c1, c2 = st.columns(2)
-        st.session_state.bank_map["datum"]        = c1.selectbox("datum", options=cols, index=0)
-        st.session_state.bank_map["betrag"]       = c2.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
+        st.session_state.bank_map["datum"]  = c1.selectbox("datum", options=cols, index=0)
+        st.session_state.bank_map["betrag"] = c2.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
+
         c3, _ = st.columns([2,1])
         st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
 
@@ -412,33 +423,37 @@ elif st.session_state.step == 2:
 
         def convert_to_grid():
             src = src_for_mapping
+
             df_new = pd.DataFrame({
-                "csv_row":       src["csv_row"],  # keep for traceability
-                "buchungsnummer": "",             # leave blank (auto-ref possible later)
-                "datum":         pick(src, "datum").apply(_parse_date_to_iso),
-                "betrag":        pick(src, "betrag").apply(_to_float),
-                "soll":          "",              # auto-assign by bank+sign if empty
-                "haben":         "",
-                "beschreibung":  pick(src, "beschreibung").astype(str),
+                "csv_row":        src["csv_row"],  # keep for traceability
+                "buchungsnummer": "",              # leave blank; can auto-generate later
+                "datum":          pick(src, "datum").apply(_parse_date_to_iso),
+                "betrag":         pick(src, "betrag").apply(_to_float),
+                "soll":           "",              # auto-assign below if bank selected
+                "haben":          "",
+                "beschreibung":   pick(src, "beschreibung").astype(str),
             })
+
+            # If no dates parsed, default to today
             if (df_new["datum"] == "").all():
                 df_new["datum"] = dt_date.today().isoformat()
 
-            # Auto-assign bank account to soll/haben by sign (only if bank selected)
+            # Auto-assign selected bank account by sign (only if empty in target)
             if st.session_state.selected_bank_number:
                 pos_mask = df_new["betrag"].fillna(0) > 0
                 neg_mask = df_new["betrag"].fillna(0) < 0
                 df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
                 df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
 
-            # Normalize schema for the editor
+            # Normalize schema & types for the editor
             st.session_state.bulk_df = ensure_schema(df_new)
 
-        # Single button that converts AND advances
+        # One button = convert AND advance
         if st.button("Weiter → 3) Kontrolle & Import"):
             convert_to_grid()
             st.session_state.step = 3
             st.experimental_rerun()
+
 
 # =========================
 # STEP 3 — KONTROLLE & IMPORT
