@@ -1,234 +1,105 @@
-/* styles.css — slim, high-contrast */
+/* styles.css — compact, high-contrast, modern */
 
 /* ===== Brand ===== */
 :root{
-  --bg: #ffffff;
-  --card: #F5F7FA;
-  --border: #E5E7EB;
-  --text: #0F1D2B;
-  --text-muted: rgba(15,29,43,.90);
+  --bg:#fff;
+  --card:#F5F7FA;
+  --border:#E5E7EB;
+  --text:#0F1D2B;
+  --muted:rgba(15,29,43,.9);
 
-  --primary: #0F4C81;         /* main button color */
-  --primary-hover: #1F5D9E;   /* hover */
-  --accent: #F1B434;          /* optional CTA */
-
-  --success: #1B8E5A;
-  --danger: #C23B31;
+  --primary:#0F4C81;        /* CTA buttons */
+  --primary-ink:#FFFFFF;    /* CTA text */
+  --primary-hover:#1F5D9E;  /* CTA hover */
+  --outline:#CBD5E1;        /* outline pills */
 }
 
 /* ===== Base ===== */
-html, body, [data-testid="stAppViewContainer"] { background: var(--bg) !important; color: var(--text) !important; }
-.block-container{ max-width:1200px; padding-top:1.5rem!important; padding-bottom:3rem!important; }
-
-h1,h2,h3{ color:var(--text)!important; letter-spacing:.2px; }
-h1{ font-size:1.8rem!important; margin:.25rem 0 .75rem; }
-h2{ font-size:1.35rem!important; margin:1rem 0 .5rem; }
-h3{ font-size:1.05rem!important; margin:.75rem 0 .25rem; }
-p, label, .stMarkdown, .stCaption{ color:var(--text-muted)!important; }
-
-a{ color:var(--text)!important; text-decoration:none; }
-a:hover{ color:#1F2E44!important; text-decoration:underline; }
+html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;color:var(--text)!important;}
+.block-container{max-width:1200px;padding-top:1.5rem!important;padding-bottom:3rem!important;}
+h1,h2,h3{color:var(--text)!important;letter-spacing:.2px;}
+h1{font-size:1.8rem!important;margin:.25rem 0 24px;}
+h2{font-size:1.35rem!important;margin:1rem 0 .5rem;}
+h3{font-size:1.05rem!important;margin:.75rem 0 .25rem;}
+p,label,.stMarkdown,.stCaption{color:var(--muted)!important;}
+a{color:var(--text)!important;text-decoration:none;}
+a:hover{color:#1F2E44!important;text-decoration:underline;}
 
 /* ===== Cards / Tables ===== */
-[data-testid="stExpander"]{ background:var(--card)!important; border:1px solid var(--border)!important; border-radius:12px!important; }
-[data-testid="stTable"] table, .stDataFrame, [data-testid="StyledDataFrame"]{ border:1px solid var(--border)!important; border-radius:10px!important; overflow:hidden!important; }
-[data-testid="stDataFrameResizable"] thead tr th{ background:var(--card)!important; color:var(--text)!important; }
+[data-testid="stExpander"]{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:12px!important;}
+[data-testid="stTable"] table,.stDataFrame,[data-testid="StyledDataFrame"]{border:1px solid var(--border)!important;border-radius:10px!important;overflow:hidden!important;}
+[data-testid="stDataFrameResizable"] thead tr th{background:var(--card)!important;color:var(--text)!important;}
 
 /* ===== Inputs ===== */
-.stTextInput input, .stNumberInput input, .stDateInput input,
-.stSelectbox div[data-baseweb="select"] input,
-.stSelectbox > div > div{
-  background:#fff!important; color:var(--text)!important;
-  border:1px solid var(--border)!important; border-radius:10px!important;
+.stTextInput input,.stNumberInput input,.stDateInput input,
+.stSelectbox div[data-baseweb="select"] input,.stSelectbox>div>div{
+  background:#fff!important;color:var(--text)!important;border:1px solid var(--border)!important;border-radius:10px!important;
 }
 
 /* File uploader */
-[data-testid="stFileUploaderDropzone"]{ background:var(--card)!important; border:1px dashed var(--border)!important; border-radius:12px!important; }
+[data-testid="stFileUploaderDropzone"]{background:var(--card)!important;border:1px dashed var(--border)!important;border-radius:12px!important;}
 
-/* ===== Buttons ===== */
-/* st.button */
-.stButton > button{
-  background:var(--primary)!important; color:#fff!important;
-  border:none!important; border-radius:999px!important;
-  padding:.55rem 1.05rem!important; font-weight:600!important;
-  transition:transform .02s, box-shadow .2s;
+/* ===== Step flow (first horizontal block) ===== */
+[data-testid="stHorizontalBlock"]:first-of-type{display:flex;align-items:center;gap:16px;}
+
+/* shrink-to-fit columns; push the 4th (Reset) to the right */
+[data-testid="stHorizontalBlock"]:first-of-type>div{flex:0 0 auto;position:relative;}
+[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(4){margin-left:auto;}
+
+/* step pills = outline buttons */
+[data-testid="stHorizontalBlock"]:first-of-type .stButton>button{
+  background:#fff!important;color:var(--text)!important;border:1px solid var(--outline)!important;
+  border-radius:999px!important;padding:9px 14px!important;font-weight:600!important;
 }
-.stButton > button:hover{ background:var(--primary-hover)!important; box-shadow:0 4px 14px rgba(0,0,0,.15)!important; transform:translateY(-1px); }
-.stButton > button:disabled{ opacity:.55!important; }
+[data-testid="stHorizontalBlock"]:first-of-type .stButton>button:hover{border-color:#94A3B8!important;}
 
-/* st.form_submit_button + new baseButton primary */
-div[data-testid="stFormSubmitButton"] > button,
-div[data-testid^="baseButton-primary"] > button,
-button[kind="primary"]{
-  background:var(--primary)!important; color:#fff!important; border:none!important; border-radius:999px!important; font-weight:700!important;
-}
-div[data-testid="stFormSubmitButton"] > button:hover,
-div[data-testid^="baseButton-primary"] > button:hover,
-button[kind="primary"]:hover{ background:var(--primary-hover)!important; }
-
-/* secondary/outline */
-div[data-testid^="baseButton-secondary"] > button,
-button[kind="secondary"]{
-  background:#fff!important; color:var(--primary)!important;
-  border:1px solid var(--primary)!important; border-radius:999px!important; font-weight:600!important;
-}
-div[data-testid^="baseButton-secondary"] > button:hover,
-button[kind="secondary"]:hover{ background:rgba(15,76,129,.06)!important; }
-
-/* download button (button or <a>) */
-div[data-testid="stDownloadButton"] > button,
-div[data-testid="stDownloadButton"] a{
-  background:var(--primary)!important; color:#fff!important;
-  border:none!important; border-radius:999px!important; padding:.55rem 1.05rem!important; font-weight:600!important; text-decoration:none!important;
-}
-div[data-testid="stDownloadButton"] > button:hover,
-div[data-testid="stDownloadButton"] a:hover{ background:var(--primary-hover)!important; box-shadow:0 4px 14px rgba(0,0,0,.15)!important; transform:translateY(-1px); }
-
-/* === 1) More space under the page title === */
-h1 { margin-bottom: 28px !important; }
-
-/* === 2) Step navigation as a flow with arrows BETWEEN buttons === */
-/* Target the first horizontal button row (Kontenplan / Bankdatei / Kontrolle & Import) */
-[data-testid="stHorizontalBlock"]:first-of-type{
-  display: flex;
-  align-items: center;
-  gap: 34px;                     /* space BETWEEN the step columns */
+/* arrows between the first three steps only */
+[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(-n+3)::after{
+  content:"➜";position:absolute;right:-10px;top:50%;transform:translateY(-50%);
+  color:#94A3B8;font-size:14px;font-weight:700;pointer-events:none;
 }
 
-/* Make step buttons look like pills (outline) */
-[data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
-  background: #fff !important;
-  color: #0F1D2B !important;
-  border: 1px solid #CBD5E1 !important;
-  border-radius: 999px !important;
-  padding: 10px 16px !important;
-  font-weight: 600 !important;
-  box-shadow: 0 1px 0 rgba(15,29,43,0.04);
-}
-[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover{
-  border-color: #94A3B8 !important;
-  box-shadow: 0 3px 10px rgba(2,6,23,0.08);
+/* make the Reset pill look neutral */
+[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(4) .stButton>button{
+  border-color:var(--border)!important;color:var(--text)!important;
 }
 
-/* Draw compact arrows BETWEEN the step columns (not inside the buttons) */
-[data-testid="stHorizontalBlock"]:first-of-type > div{
-  position: relative;
+/* ===== Buttons (global) ===== */
+/* 1) Primary CTAs: strong contrast used by: st.form_submit_button, baseButton primary, and st.button fallback */
+div[data-testid="stFormSubmitButton"]>button,
+[data-testid^="baseButton-primary"]>button,
+button[kind="primary"],
+/* fallback if a CTA is rendered as plain st.button */
+.cta button,
+.stButton>button[data-baseweb="button"].ekooqlz0{ /* tolerate Streamlit class drift */
+  background:var(--primary)!important;color:var(--primary-ink)!important;
+  border:1px solid var(--primary-hover)!important;border-radius:12px!important;
+  padding:12px 18px!important;font-weight:700!important;letter-spacing:.2px;
+  box-shadow:0 6px 18px rgba(15,76,129,.25)!important;transition:transform .06s,box-shadow .2s,filter .15s;
 }
-[data-testid="stHorizontalBlock"]:first-of-type > div:not(:last-child)::after{
-  content: "➜";
-  position: absolute;
-  right: -22px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #94A3B8;
-  font-size: 18px;
-  font-weight: 700;
-  pointer-events: none;
-}
+div[data-testid="stFormSubmitButton"]>button:hover,
+[data-testid^="baseButton-primary"]>button:hover,
+button[kind="primary"]:hover,
+.cta button:hover{background:var(--primary-hover)!important;transform:translateY(-1px);box-shadow:0 10px 22px rgba(31,93,158,.30)!important;}
+div[data-testid="stFormSubmitButton"]>button:disabled,
+[data-testid^="baseButton-primary"]>button:disabled{opacity:.6!important;box-shadow:none!important;transform:none!important;}
 
-/* So the reset button (4th) doesn’t look like part of the flow */
-[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4) .stButton > button{
-  border-color: #E5E7EB !important;
-  color: #0F1D2B !important;
+/* 2) Secondary / outline */
+[data-testid^="baseButton-secondary"]>button, button[kind="secondary"]{
+  background:#fff!important;color:var(--primary)!important;border:1px solid var(--primary)!important;border-radius:999px!important;font-weight:600!important;
 }
+[data-testid^="baseButton-secondary"]>button:hover, button[kind="secondary"]:hover{background:rgba(15,76,129,.06)!important;}
 
-/* === 3) Modern, high-contrast primary buttons (CTAs) === */
-/* Applies to: st.form_submit_button (“Buchungen posten”) and baseButton primary (“Weiter …”) */
-div[data-testid="stFormSubmitButton"] > button,
-[data-testid^="baseButton-primary"] > button{
-  background: linear-gradient(180deg, #2563EB 0%, #1E40AF 100%) !important; /* vivid blue */
-  color: #FFFFFF !important;
-  border: 1px solid #1E3A8A !important;
-  border-radius: 12px !important;
-  padding: 12px 18px !important;
-  font-weight: 700 !important;
-  letter-spacing: .2px;
-  box-shadow: 0 8px 22px rgba(37,99,235,0.25) !important;
-  transition: transform .06s ease, box-shadow .2s ease, filter .15s ease;
+/* 3) Regular st.button (non-CTA) */
+.stButton>button{
+  background:#fff!important;color:var(--text)!important;border:1px solid var(--outline)!important;border-radius:10px!important;
+  padding:.55rem 1rem!important;font-weight:600!important;
 }
-div[data-testid="stFormSubmitButton"] > button:hover,
-[data-testid^="baseButton-primary"] > button:hover{
-  filter: brightness(1.06) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 12px 26px rgba(37,99,235,0.32) !important;
-}
-div[data-testid="stFormSubmitButton"] > button:disabled,
-[data-testid^="baseButton-primary"] > button:disabled{
-  opacity: .55 !important;
-  filter: none !important;
-  box-shadow: none !important;
-}
+.stButton>button:hover{border-color:#94A3B8!important;}
 
-/* Optional: keep secondary/outline buttons readable everywhere */
-[data-testid^="baseButton-secondary"] > button{
-  background: #fff !important;
-  color: #0F4C81 !important;
-  border: 1px solid #0F4C81 !important;
-  border-radius: 999px !important;
-  padding: 5px 5px !important;
-  font-weight: 600 !important;
+/* 4) Download */
+div[data-testid="stDownloadButton"]>button, div[data-testid="stDownloadButton"] a{
+  background:var(--primary)!important;color:#fff!important;border:1px solid var(--primary-hover)!important;border-radius:12px!important;
+  padding:.6rem 1.1rem!important;font-weight:700!important;text-decoration:none!important;
 }
-[data-testid^="baseButton-secondary"] > button:hover{
-  background: rgba(15,76,129,.06) !important;
-}
-
-/* Slightly larger gap before the main content block under the nav */
-hr + div, [data-testid="stAppViewContainer"] > .main > div:first-child{
-  margin-top: 6px; /* subtle extra spacing after the nav row */
-}
-
-
-/* === Compact step flow: shrink columns + small arrows + tight gaps === */
-[data-testid="stHorizontalBlock"]:first-of-type{
-  display: flex;
-  align-items: center;
-  gap: 12px;                          /* tighter gap between steps */
-  justify-content: flex-start;
-}
-
-/* Let the first three columns shrink to content; push reset to the far right */
-[data-testid="stHorizontalBlock"]:first-of-type > div{
-  flex: 0 0 auto;                     /* no equal column stretching */
-  position: relative;
-}
-[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4){
-  margin-left: auto;                  /* reset button on the far right */
-}
-
-/* Compact step buttons */
-[data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
-  padding: 8px 14px !important;
-  font-size: 14px !important;
-  border-radius: 999px !important;
-  background: #fff !important;
-  color: #0F1D2B !important;
-  border: 1px solid #CBD5E1 !important;
-}
-[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover{
-  border-color: #94A3B8 !important;
-}
-
-/* Small arrows ONLY between the first three steps */
-[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(-n+3)::after{
-  content: "➜";
-  position: absolute;
-  right: -10px;                       /* closer to the next pill */
-  top: 50%;
-  transform: translateY(-50%);
-  color: #94A3B8;
-  font-size: 14px;
-  font-weight: 700;
-  pointer-events: none;
-}
-
-/* Slightly more space under the title, but less than before */
-h1 { margin-bottom: 18px !important; }
-
-/* Optional: tighter layout on very small screens */
-@media (max-width: 700px){
-  [data-testid="stHorizontalBlock"]:first-of-type{ gap: 8px; }
-  [data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(-n+3)::after{ right: -8px; font-size: 13px; }
-  [data-testid="stHorizontalBlock"]:first-of-type .stButton > button{ padding: 7px 12px !important; font-size: 13.5px !important; }
-}
-
-
+div[data-testid="stDownloadButton"]>button:hover, div[data-testid="stDownloadButton"] a:hover{background:var(--primary-hover)!important;}
