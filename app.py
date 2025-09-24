@@ -461,13 +461,22 @@ elif st.session_state.step == 2:
     st.caption("Lade eine CSV (oder Excel mit .csv-Endung). Danach Startzeile und Spalten zuordnen.")
 
     bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
-    col_enc1, col_enc2 = st.columns([2,1])
 
+    # --- Encoding & Decimal controls (used by the reader) ---
+    col_enc1, col_enc2 = st.columns([2, 1])
+    encoding_choice = col_enc1.selectbox(
+        "Encoding",
+        ["utf-8", "utf-8-sig", "latin-1", "cp1252", "utf-16", "utf-16le", "utf-16be"],
+        index=0,
+    )
+    decimal_choice = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
 
+    # --- robust read + preview ---
     if bank_file is not None:
         try:
-            st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding, decimal)
+            st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding_choice, decimal_choice)
             df_src = st.session_state.bank_csv_df
+
             if not isinstance(df_src, pd.DataFrame) or df_src.empty:
                 raise ValueError("Datei enthält keine Datenzeilen.")
 
@@ -475,35 +484,44 @@ elif st.session_state.step == 2:
             st.session_state.bank_start_row = st.number_input(
                 "Startzeile (1-basiert)", min_value=1, value=int(st.session_state.bank_start_row), step=1
             )
+
             start_idx = max(0, int(st.session_state.bank_start_row) - 1)
             if start_idx >= len(df_src):
                 raise ValueError("Startzeile liegt hinter dem Dateiende.")
 
+            # Build safe view and reserve our own csv_row
             df_view = df_src.iloc[start_idx:].copy()
             if "csv_row" in df_view.columns:
                 df_view = df_view.rename(columns={"csv_row": "csv_row_file"})
-            df_view.insert(0, "csv_row", df_view.index + 1)
+            df_view.insert(0, "csv_row", df_view.index + 1)  # 1-based original row no. from file
             df_view = df_view.reset_index(drop=True)
+
             st.session_state.bank_csv_view_df = df_view
 
             st.success(f"Verwende {len(df_view)} Datenzeilen ab Zeile {st.session_state.bank_start_row}.")
             st.dataframe(df_view.head(50), use_container_width=True, hide_index=True)
+
         except Exception as e:
             st.session_state.bank_csv_view_df = None
             st.error(f"CSV konnte nicht gelesen werden: {e}")
 
     src_for_mapping = st.session_state.get("bank_csv_view_df", None)
 
+    # --- mapping UI only when we truly have rows ---
     if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
         st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
+
+        # Only these are mapped by the user (exclude our synthetic csv_row)
         cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
 
         c1, c2 = st.columns(2)
         st.session_state.bank_map["datum"]  = c1.selectbox("datum", options=cols, index=0)
         st.session_state.bank_map["betrag"] = c2.selectbox("betrag (positiv = Debit / negativ = Kredit)", options=cols, index=0)
-        c3, _ = st.columns([2,1])
+
+        c3, _ = st.columns([2, 1])
         st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
 
+        # Safe picker: always returns a Series aligned to src_for_mapping
         def pick(key: str) -> pd.Series:
             sel = st.session_state.bank_map.get(key)
             if sel and sel in src_for_mapping.columns:
@@ -513,35 +531,40 @@ elif st.session_state.step == 2:
         def convert_to_grid_and_advance():
             src = src_for_mapping
             df_new = pd.DataFrame({
-                "csv_row":        src["csv_row"],
-                "buchungsnummer": "",
+                "csv_row":        src["csv_row"],                        # traceability
+                "buchungsnummer": "",                                    # left blank (auto-ref later)
                 "datum":          pick("datum").apply(_parse_date_to_iso),
                 "beschreibung":   pick("beschreibung").astype(str),
                 "betrag":         pick("betrag").apply(_to_float),
-                "soll":           "",
+                "soll":           "",                                    # auto-fill by bank/sign if set
                 "haben":          "",
             })
 
+            # Default date if parsing failed everywhere
             if (df_new["datum"] == "").all():
                 df_new["datum"] = dt_date.today().isoformat()
 
+            # Assign selected bank account to soll/haben by sign (only if empty in target)
             if st.session_state.selected_bank_number:
                 pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
                 neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
                 df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
                 df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
 
-            # amount positive
+            # Amount must be positive in UI/API; side is defined by debit/credit
             df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce").abs()
 
+            # Normalize for editor stability
             st.session_state.bulk_df = ensure_schema(df_new)
+
+            # Advance to step 3
             st.session_state.step = 3
             st.rerun()
 
-        if st.button("Weiter → 3) Kontrolle & Import", type="primary"):
-            convert_to_grid_and_advance()
+        st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
     else:
         st.info("Lade eine Datei und wähle eine gültige Startzeile, um fortzufahren.")
+
 
 # =========================
 # STEP 3 — KONTROLLE & IMPORT
