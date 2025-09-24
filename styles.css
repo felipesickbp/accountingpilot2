@@ -149,3 +149,35 @@ a:hover, .st-a:hover {
 
 /* Radio/checkbox labels */
 .stCheckbox label, .stRadio
+
+/* Fix styling for st.download_button */
+div[data-testid="stDownloadButton"] > button {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.5rem 1rem !important;
+  font-weight: 600 !important;
+}
+div[data-testid="stDownloadButton"] > button:hover {
+  background: var(--brand-primary-80) !important;
+  box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
+  transform: translateY(-1px);
+}
+
+/* Some Streamlit versions render download as an <a> link */
+div[data-testid="stDownloadButton"] a {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.5rem 1rem !important;
+  font-weight: 600 !important;
+  display: inline-block !important;
+  text-decoration: none !important;
+}
+div[data-testid="stDownloadButton"] a:hover {
+  background: var(--brand-primary-80) !important;
+  box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
+  transform: translateY(-1px);
+}
