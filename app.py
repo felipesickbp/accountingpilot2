@@ -64,8 +64,8 @@ if "bank_map" not in st.session_state:
         "buchungsnummer": None,
         "datum": None,
         "betrag": None,
-        "soll": None,   # Kontonummer (oder account_id)
-        "haben": None,  # Kontonummer (oder account_id)
+        "soll": None,   # Kontonummer (oder id)
+        "haben": None,  # Kontonummer (oder id)
     }
 
 if "bulk_df" not in st.session_state:
@@ -302,20 +302,43 @@ if st.session_state.step == 1:
         st.caption("Tabelle: **Kontonummer → externe ID** (id).")
 
         st.subheader("Bankkonto wählen (optional, für Auto-Zuordnung)")
-        banks_df = st.session_state.acct_df.copy()
-        try:
-            banks_df["type"] = pd.to_numeric(banks_df["type"], errors="coerce")
-        except Exception:
-            pass
-        banks_df = banks_df[(banks_df["type"] == 1) & (banks_df["active"] == True)]
+        df = st.session_state.acct_df.copy()
+
+        # Normalize for filtering
+        df["number_str"] = df["number"].astype(str).str.strip()
+        df["name_str"]   = df["name"].astype(str)
+        # Heuristic for bank/cash accounts: account_no 10xx or name contains keywords (case-insensitive)
+        is_bank_like = (
+            df["number_str"].str.match(r"10\d{2}(-[A-Z])?$", na=False) |
+            df["name_str"].str.contains(r"\b(bank|kasse|konto|cash)\b", case=False, regex=True, na=False)
+        )
+        active_mask = (df["active"] == True)
+
+        banks_df = df[active_mask & is_bank_like].copy()
+        if banks_df.empty:
+            # Fallback: all active accounts
+            banks_df = df[active_mask].copy()
+
+        # Simple filter box to quickly find 1020 etc.
+        filt = st.text_input("Kontensuche (Nummer/Name enthält …)", value="")
+        if filt.strip():
+            s = filt.strip().lower()
+            banks_df = banks_df[
+                banks_df["number_str"].str.lower().str.contains(s, na=False) |
+                banks_df["name_str"].str.lower().str.contains(s, na=False)
+            ]
+
         if not banks_df.empty:
-            opts = [f"{str(r['number']).strip()} · {r['name']} (id {int(r['id'])})" for _, r in banks_df.iterrows()]
+            opts = [f"{r['number_str']} · {r['name_str']} (id {int(r['id'])})" for _, r in banks_df.iterrows()]
             choice = st.selectbox("Bankkonto (optional)", ["<keins>"] + opts, index=0)
             if choice != "<keins>":
                 st.session_state.selected_bank_number = choice.split(" · ", 1)[0].strip()
-                st.caption(f"Gewählt: **{st.session_state.selected_bank_number}** – wird in Schritt 3 je nach Vorzeichen in *soll/haben* gesetzt.")
+                st.caption(
+                    f"Gewählt: **{st.session_state.selected_bank_number}** – in Schritt 3 wird für **positive Beträge** automatisch **soll**, "
+                    f"für **negative Beträge** automatisch **haben** mit diesem Konto vorbelegt (falls leer)."
+                )
         else:
-            st.info("Keine Bankkonten (type==1) im Kontenplan gefunden.")
+            st.info("Keine aktiven Konten passend zum Filter gefunden.")
 
     st.markdown("---")
     disabled_next = st.session_state.acct_df is None or st.session_state.acct_df.empty
@@ -370,7 +393,6 @@ elif st.session_state.step == 2:
         st.session_state.bank_map["soll"]           = c4.selectbox("soll (Kontonummer oder account_id)", options=cols, index=0)
         st.session_state.bank_map["haben"]          = st.selectbox("haben (Kontonummer oder account_id)", options=cols, index=0)
 
-        # Build preview grid
         def pick(src, colname):
             sel = st.session_state.bank_map.get(colname)
             if sel and sel in src.columns:
