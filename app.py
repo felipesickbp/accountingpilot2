@@ -580,7 +580,7 @@ elif st.session_state.step == 3:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "csv_row":        st.column_config.TextColumn("csv_row (aus CSV)"),
+                "csv_row":        st.column_config.NumberColumn("csv_row (aus CSV)", step=1, format="%d"),
                 "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr."),
                 "datum":          st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
                 "betrag":         st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
