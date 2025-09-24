@@ -84,4 +84,45 @@ div[data-testid="stDownloadButton"] a{
 div[data-testid="stDownloadButton"] > button:hover,
 div[data-testid="stDownloadButton"] a:hover{ background:var(--primary-hover)!important; box-shadow:0 4px 14px rgba(0,0,0,.15)!important; transform:translateY(-1px); }
 
+/* === Extra spacing under title === */
+h1 { 
+  margin-bottom: 2rem !important;  /* more room before the nav buttons */
+}
+
+/* === Nav buttons: layout & arrows to show flow === */
+/* Target the FIRST horizontal button row (your Kontenplan/Bankdatei/Kontrolle & Import) */
+[data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
+  margin-right: 18px;          /* extra breathing room between buttons */
+  position: relative;
+  padding-right: 1.75rem !important;  /* room for arrow inside button */
+}
+
+/* Add arrow (›) inside the first two buttons to indicate flow */
+[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(1) .stButton > button::after,
+[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(2) .stButton > button::after{
+  content: "›";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+/* Optional: soften the reset button (4th) so it doesn't look like part of the flow */
+[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4) .stButton > button{
+  border-color: var(--brand-border) !important;
+}
+
+/* === Increase contrast on the “Buchungen posten” submit button === */
+/* This selector targets st.form_submit_button specifically */
+div[data-testid="stFormSubmitButton"] > button{
+  background: #0B5ED7 !important;           /* higher-contrast blue */
+  color: #FFFFFF !important;
+  border: 1px solid #083d8c !important;
+  font-weight: 700 !important;
+}
+div[data-t]()
+
+
 
