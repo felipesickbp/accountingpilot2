@@ -29,12 +29,84 @@ TOKEN_URL = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/token"
 API_V3 = "https://api.bexio.com/3.0"
 MANUAL_ENTRIES_V3 = f"{API_V3}/accounting/manual_entries"
 NEXT_REF_V3       = f"{API_V3}/accounting/manual_entries/next_ref_nr"
-ACCOUNTS_V3       = f"{API_V3}/accounting/accounts"
-
 
 # v2 (read-only import of accounts)
 API_V2 = "https://api.bexio.com/2.0"
 
+SCOPES = "openid profile email offline_access company_profile"
+
+st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘")
+
+# ---- Session defaults (do this BEFORE any access) ----
+if "oauth" not in st.session_state:
+    st.session_state.oauth = {}
+if "bulk_df" not in st.session_state:
+    st.session_state.bulk_df = None
+if "acct_map_by_number" not in st.session_state:
+    st.session_state.acct_map_by_number = {}
+if "acct_df" not in st.session_state:
+    st.session_state.acct_df = None
+
+# Default currency
+DEFAULT_CURRENCY_ID = 1
+DEFAULT_CURRENCY_FACTOR = 1.0
+
+def auth_header(token):
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+def save_tokens(tokens):
+    tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
+    st.session_state.oauth = tokens
+
+def need_login():
+    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
+
+def refresh_access_token():
+    if not st.session_state.oauth.get("refresh_token"):
+        return
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": st.session_state.oauth["refresh_token"],
+        "client_id": BEXIO_CLIENT_ID,
+        "client_secret": BEXIO_CLIENT_SECRET,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+    }
+    r = requests.post(TOKEN_URL, data=data, timeout=30)
+    r.raise_for_status()
+    save_tokens(r.json())
+
+def login_link():
+    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
+    params = {
+        "client_id": BEXIO_CLIENT_ID,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": state,
+    }
+    url = f"{AUTH_URL}?{urlencode(params)}"
+    st.markdown(f"[Sign in with bexio]({url})")
+
+def handle_callback():
+    code = st.query_params.get("code")
+    if not code:
+        return
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "client_id": BEXIO_CLIENT_ID,
+        "client_secret": BEXIO_CLIENT_SECRET,
+    }
+    r = requests.post(TOKEN_URL, data=data, timeout=30)
+    r.raise_for_status()
+    save_tokens(r.json())
+    st.query_params.clear()
+
+def _auth():
+    return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
+
+# v2 read-only auth + fetch
 def _auth_v2():
     return {
         **auth_header(st.session_state.oauth["access_token"]),
@@ -63,83 +135,6 @@ def fetch_all_accounts_v2(limit=2000):
         offset += limit
     return rows
 
-
-SCOPES = "openid profile email offline_access company_profile"
-
-st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘")
-
-if "oauth" not in st.session_state:
-    st.session_state.oauth = {}
-if "bulk_df" not in st.session_state:
-    st.session_state.bulk_df = None
-
-if "acct_map_by_number" not in st.session_state:
-    st.session_state.acct_map_by_number = {}
-if "acct_df" not in st.session_state:
-    st.session_state.acct_df = None
-
-def auth_header(token):
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
-
-def save_tokens(tokens):
-    tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
-    st.session_state.oauth = tokens
-
-
-def need_login():
-    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
-
-
-def refresh_access_token():
-    if not st.session_state.oauth.get("refresh_token"):
-        return
-    data = {
-        "grant_type": "refresh_token",
-        "refresh_token": st.session_state.oauth["refresh_token"],
-        "client_id": BEXIO_CLIENT_ID,
-        "client_secret": BEXIO_CLIENT_SECRET,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-    }
-    r = requests.post(TOKEN_URL, data=data, timeout=30)
-    r.raise_for_status()
-    save_tokens(r.json())
-
-
-def login_link():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
-    params = {
-        "client_id": BEXIO_CLIENT_ID,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "response_type": "code",
-        "scope": SCOPES,
-        "state": state,
-    }
-    url = f"{AUTH_URL}?{urlencode(params)}"
-    st.markdown(f"[Sign in with bexio]({url})")
-
-
-def handle_callback():
-    code = st.query_params.get("code")
-    if not code:
-        return
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "client_id": BEXIO_CLIENT_ID,
-        "client_secret": BEXIO_CLIENT_SECRET,
-    }
-    r = requests.post(TOKEN_URL, data=data, timeout=30)
-    r.raise_for_status()
-    save_tokens(r.json())
-    st.query_params.clear()
-
-
-def _auth():
-    return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
-
-
 # =========================
 # PAGE
 # =========================
@@ -155,76 +150,6 @@ if need_login():
 if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
-
-# =========================
-# Accounts table (all accounts & IDs)
-# =========================
-with st.expander("📒 Konto-IDs aus deinem Mandanten (v3-Quellen)"):
-    try:
-        rows = []
-        # 1) Banking-linked GL accounts (reliable v3 endpoint)
-        try:
-            r = requests.get(f"{API_V3}/banking/accounts", headers=_auth(), timeout=30)
-            r.raise_for_status()
-            banks = r.json() if isinstance(r.json(), list) else []
-            for b in banks:
-                rows.append({
-                    "source": "banking",
-                    "account_id": b.get("account_id"),
-                    "label": b.get("name") or b.get("bank_name"),
-                    "note": f"IBAN {b.get('iban_nr')}"
-                })
-        except Exception as e:
-            st.warning(f"Bankkonten konnten nicht geladen werden: {e}")
-
-        # 2) Tax accounts (carry account ids)
-        try:
-            r = requests.get(f"{API_V3}/taxes?scope=active", headers=_auth(), timeout=30)
-            r.raise_for_status()
-            taxes = r.json() if isinstance(r.json(), list) else []
-            for t in taxes:
-                acc = t.get("account_id")
-                if acc:
-                    rows.append({
-                        "source": "tax",
-                        "account_id": acc,
-                        "label": t.get("display_name") or t.get("code"),
-                        "note": f"tax_id {t.get('id')}"
-                    })
-        except Exception as e:
-            st.info("Steuerkonten konnten nicht geladen werden (optional): " + str(e))
-
-        # 3) Journal scan (wide window)
-        try:
-            from datetime import date, timedelta
-            start = (date.today() - timedelta(days=3650)).isoformat()  # ~10 Jahre
-            r = requests.get(f"{API_V3}/accounting/journal?from={start}&limit=2000", headers=_auth(), timeout=30)
-            r.raise_for_status()
-            entries = r.json() if isinstance(r.json(), list) else []
-            seen = set()
-            for j in entries:
-                for k in ("debit_account_id", "credit_account_id"):
-                    a = j.get(k)
-                    if a and a not in seen:
-                        seen.add(a)
-                        rows.append({
-                            "source": "journal",
-                            "account_id": a,
-                            "label": j.get("description"),
-                            "note": "sichtbar in Journal"
-                        })
-        except Exception as e:
-            st.info("Journal konnte nicht geladen werden: " + str(e))
-
-        if rows:
-            df_ids = pd.DataFrame(rows).drop_duplicates(subset=["account_id"]).sort_values("account_id")
-            st.dataframe(df_ids, use_container_width=True, hide_index=True)
-            st.caption("Nutze die **account_id** in den Spalten ‘soll’/‘haben’. (Nur v3-Quellen.)")
-        else:
-            st.info("Keine Konto-IDs aus v3-Quellen gefunden.")
-    except Exception as e:
-        st.error(f"Fehler beim Ermitteln der Konto-IDs: {e}")
-
 
 # ---- v2 Kontenplan import (read-only, builds number -> id mapping) ----
 st.subheader("Kontenplan aus bexio importieren (READ via v2)")
@@ -271,26 +196,43 @@ if st.session_state.acct_df is not None:
     st.dataframe(st.session_state.acct_df, use_container_width=True, hide_index=True)
     st.caption("Diese Tabelle liefert die **externe ID** (= `id`) pro Kontonummer.")
 
-# Render editable grid
-edited_df = st.data_editor(
-    st.session_state.bulk_df,
-    num_rows="dynamic",
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional. Wenn leer, kann automatisch bezogen werden."),
-        "datum": st.column_config.DateColumn("datum", format="YYYY-MM-DD"),
-        "betrag": st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
-        "soll": st.column_config.NumberColumn("soll (debit_account_id)", min_value=1, step=1),
-        "haben": st.column_config.NumberColumn("haben (credit_account_id)", min_value=1, step=1),
-    },
-)
+# Create an initial empty grid if not present (after session defaults)
+if st.session_state.bulk_df is None:
+    st.session_state.bulk_df = pd.DataFrame(
+        {
+            "buchungsnummer": ["" for _ in range(5)],
+            "datum": [dt_date.today() for _ in range(5)],
+            "betrag": [0.00 for _ in range(5)],
+            "soll": ["" for _ in range(5)],   # text input (Kontonummer or id)
+            "haben": ["" for _ in range(5)],  # text input (Kontonummer or id)
+        }
+    )
 
+st.subheader("Mehrere Buchungen erfassen")
+st.caption("Spalten: **buchungsnummer**, **datum**, **betrag**, **soll**, **haben**. "
+           "Trage in **soll/haben** die **Kontonummer** ein (z. B. 1023); die App nutzt automatisch die passende **account_id** aus dem importierten Kontenplan.")
+
+with st.form("bulk_entries_form", clear_on_submit=False):
+    edited_df = st.data_editor(
+        st.session_state.bulk_df,
+        key="bulk_grid",
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr (wenn Checkbox aktiv)."),
+            "datum": st.column_config.DateColumn("datum", format="YYYY-MM-DD"),
+            "betrag": st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
+            "soll": st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
+            "haben": st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
+        },
+    )
+    colA, colB = st.columns(2)
+    auto_ref = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
+    submitted = colB.form_submit_button("Buchungen posten", type="primary")
+
+# Persist edits back to session AFTER the form block
 st.session_state.bulk_df = edited_df
-
-colA, colB = st.columns(2)
-auto_ref = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
-post_btn = colB.button("Buchungen posten", type="primary")
 
 def resolve_account_id_from_number_or_id(val):
     """
@@ -308,12 +250,10 @@ def resolve_account_id_from_number_or_id(val):
     key = str(val).strip()
     return int(st.session_state.acct_map_by_number[key]) if key in st.session_state.acct_map_by_number else None
 
-
 # =========================
-# Posting logic (one API call per Zeile)
+# Posting logic (one API call per row)
 # =========================
-
-if post_btn:
+if submitted:
     rows = edited_df.fillna("")
     results = []
 
@@ -332,7 +272,6 @@ if post_btn:
                 date_iso = d.isoformat()
             else:
                 date_iso = str(d)
-                # Basic YYYY-MM-DD check
                 if not isinstance(date_iso, str) or len(date_iso.split("-")) != 3:
                     raise ValueError("Ungültiges Datum – erwartet YYYY-MM-DD.")
 
@@ -344,7 +283,6 @@ if post_btn:
             credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
             if not debit_id or not credit_id:
                 raise ValueError("Ungültiges Konto: konnte keine account_id für soll/haben auflösen (bitte Kontenplan importieren).")
-
 
             ref_nr = str(row.get("buchungsnummer") or "").strip()
             if auto_ref and not ref_nr:
@@ -360,7 +298,7 @@ if post_btn:
                         "debit_account_id": debit_id,
                         "credit_account_id": credit_id,
                         "amount": amount,
-                        "description": "",  # bewusst leer; bei Bedarf erweitern
+                        "description": "",
                         "currency_id": DEFAULT_CURRENCY_ID,
                         "currency_factor": DEFAULT_CURRENCY_FACTOR,
                     }
