@@ -1,0 +1,165 @@
+/* styles.css */
+
+/* ===== Brand Variables ===== */
+:root{
+  --brand-navy: #0F1D2B;
+  --brand-navy-90: rgba(15,29,43,0.90);
+  --brand-muted: #6B7280;         /* text-muted */
+  --brand-bg: #FFFFFF;            /* page bg */
+  --brand-card: #F5F7FA;          /* cards / secondary bg */
+  --brand-border: #E5E7EB;        /* borders */
+  --brand-link: #0F1D2B;
+  --brand-link-hover: #1F2E44;
+  --brand-success: #1B8E5A;
+  --brand-danger: #C23B31;
+}
+
+/* ===== Reset small Streamlit bits ===== */
+html, body, [data-testid="stAppViewContainer"] {
+  background: var(--brand-bg) !important;
+}
+
+/* Remove hard edges around containers */
+.block-container {
+  padding-top: 1.5rem !important;
+  padding-bottom: 3rem !important;
+  max-width: 1200px;
+}
+
+/* ===== Top header bar (optional) ===== */
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  background: var(--brand-bg);
+  border-bottom: 1px solid var(--brand-border);
+  padding: 0.75rem 0;
+  margin-bottom: 1rem;
+}
+.app-topbar .wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-topbar .brand {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--brand-navy);
+  font-size: 1.15rem;
+  line-height: 1.1;
+  margin: 0;
+}
+.app-topbar .tagline {
+  color: var(--brand-muted);
+  font-size: 0.9rem;
+}
+
+/* ===== Typography ===== */
+h1, h2, h3 {
+  color: var(--brand-navy) !important;
+  letter-spacing: 0.2px;
+}
+h1 { font-size: 1.8rem !important; margin-bottom: 0.75rem; }
+h2 { font-size: 1.35rem !important; margin-top: 1.25rem; }
+h3 { font-size: 1.05rem !important; margin-top: 1rem; }
+
+p, label, .stMarkdown {
+  color: var(--brand-navy-90);
+}
+
+/* Links */
+a, .st-a {
+  color: var(--brand-link) !important;
+  text-decoration: none;
+  transition: color .2s ease-in-out;
+}
+a:hover, .st-a:hover {
+  color: var(--brand-link-hover) !important;
+  text-decoration: underline;
+}
+
+/* ===== Cards / Expanders / Data containers ===== */
+[data-testid="stExpander"] {
+  background: var(--brand-card) !important;
+  border: 1px solid var(--brand-border) !important;
+  border-radius: 12px;
+  overflow: hidden;
+}
+[data-testid="stExpander"] summary {
+  font-weight: 600;
+}
+
+/* Dataframes / Editors */
+[data-testid="stTable"] table, .stDataFrame, [data-testid="StyledDataFrame"] {
+  border-radius: 10px !important;
+  border: 1px solid var(--brand-border) !important;
+  overflow: hidden !important;
+}
+.stDataFrame th, .stDataFrame td {
+  border-color: var(--brand-border) !important;
+}
+
+/* Data editor header */
+[data-testid="stDataFrameResizable"] thead tr th {
+  background: var(--brand-card) !important;
+}
+
+/* ===== Inputs ===== */
+.stTextInput > div > div input,
+.stNumberInput input,
+.stDateInput input,
+.stSelectbox div[data-baseweb="select"] input {
+  border-radius: 10px !important;
+  border: 1px solid var(--brand-border) !important;
+}
+
+/* Selectbox pill */
+.stSelectbox > div > div {
+  border-radius: 10px !important;
+  border: 1px solid var(--brand-border) !important;
+}
+
+/* File Uploader */
+[data-testid="stFileUploaderDropzone"] {
+  background: var(--brand-card) !important;
+  border: 1px dashed var(--brand-border) !important;
+  border-radius: 12px !important;
+}
+
+/* ===== Buttons ===== */
+.stButton > button, [data-testid="baseButton-secondary"] {
+  background: var(--brand-navy) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.5rem 1rem !important;
+  transition: transform .02s ease-in-out, box-shadow .2s ease-in-out, opacity .2s;
+}
+.stButton > button:hover {
+  box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
+  transform: translateY(-1px);
+}
+.stButton > button:disabled {
+  opacity: 0.5 !important;
+}
+
+/* Secondary buttons (danger, warning, etc.) tweak if needed */
+div[data-testid="stHorizontalBlock"] .stButton:nth-child(2) > button {
+  background: transparent !important;
+  color: var(--brand-navy) !important;
+  border: 1px solid var(--brand-navy) !important;
+}
+
+/* Alerts */
+[data-baseweb="notification"] {
+  border-radius: 12px !important;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+  background: var(--brand-card) !important;
+  border-right: 1px solid var(--brand-border) !important;
+}
+section[data-testid="stSidebar"] .sidebar-content {
+  padding-top: 0.5rem;
+}
