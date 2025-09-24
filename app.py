@@ -122,25 +122,42 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 # =========================
 # Accounts table (all accounts & IDs)
 # =========================
+ACCOUNTS_V2 = f"{API_V2}/accounting/account"  # v2 chart of accounts
+
 with st.expander("📒 Kontenplan – alle Konten & IDs"):
     try:
-        # Attempt to retrieve a large page; if your tenant has more, add simple pagination as needed
-        r = requests.get(f"{ACCOUNTS_V3}?limit=1000", headers=_auth(), timeout=30)
-        r.raise_for_status()
-        accounts = r.json() if isinstance(r.json(), list) else []
-        if accounts:
-            df_accts = pd.DataFrame([
-                {
-                    "id": a.get("id"),
-                    "number": a.get("number"),
-                    "name": a.get("name"),
-                    "is_active": a.get("is_active"),
-                    "type": a.get("type"),
-                }
-                for a in accounts
-            ]).sort_values(["number", "id"], na_position="last")
+        # Try v3 (likely 404 today); then v2 which works
+        try:
+            r = requests.get(f"{API_V3}/accounting/accounts?limit=1000", headers=_auth(), timeout=30)
+            if r.status_code == 404:
+                raise requests.HTTPError(response=r)
+            r.raise_for_status()
+            accounts = r.json() if isinstance(r.json(), list) else []
+            # Normalize to v2-like structure if v3 ever appears
+            rows = [{
+                "id": a.get("id"),
+                "number": a.get("number") or a.get("code"),
+                "name": a.get("name"),
+                "is_active": a.get("is_active"),
+                "type": a.get("type"),
+            } for a in accounts]
+        except requests.HTTPError:
+            # Fallback to v2 (current, working)
+            r = requests.get(f"{ACCOUNTS_V2}?limit=1000", headers=_auth(), timeout=30)
+            r.raise_for_status()
+            acc = r.json() if isinstance(r.json(), list) else []
+            rows = [{
+                "id": a.get("id"),
+                "number": a.get("account_no"),
+                "name": a.get("name"),
+                "is_active": a.get("is_active"),
+                "type": a.get("type"),
+            } for a in acc]
+
+        if rows:
+            df_accts = pd.DataFrame(rows).sort_values(["number", "id"], na_position="last")
             st.dataframe(df_accts, use_container_width=True, hide_index=True)
-            st.caption("Nutze die Spalten ‘soll’/‘haben’ unten mit diesen **id**-Werten (nicht ‘number’).")
+            st.caption("Nutze in der Erfassung unten die **id**-Werte in ‘soll’/‘haben’.")
         else:
             st.info("Keine Konten gefunden.")
     except Exception as e:
