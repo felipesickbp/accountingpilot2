@@ -43,6 +43,17 @@ st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘"
 
 REQUIRED_COLS = ["csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung"]
 
+# Load CSS (call this right after set_page_config)
+def _inject_local_css(file_path: str = "styles.css"):
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except Exception as e:
+        st.warning(f"Custom CSS konnte nicht geladen werden: {e}")
+
+_inject_local_css()
+
+
 def ensure_schema(df_in: pd.DataFrame) -> pd.DataFrame:
     """Return a copy with exactly the REQUIRED_COLS and safe dtypes for data_editor."""
     # If input is None, start from an empty frame
@@ -349,7 +360,7 @@ if col_reset.button("🔁 Assistent zurücksetzen"):
         if k in st.session_state:
             del st.session_state[k]
     st.session_state.step = 1
-    st.experimental_rerun()
+    st.rerun()
 
 st.markdown("---")
 
@@ -439,6 +450,9 @@ if st.session_state.step == 1:
 # =========================
 # STEP 2 — BANKDATEI & MAPPING
 # =========================
+# =========================
+# STEP 2 — BANKDATEI & MAPPING
+# =========================
 elif st.session_state.step == 2:
     if st.session_state.acct_df is None or st.session_state.acct_df.empty:
         st.warning("Bitte zuerst Schritt 1 abschließen (Kontenplan importieren).")
@@ -453,86 +467,99 @@ elif st.session_state.step == 2:
     encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=0)
     decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
 
+    # --- robust read + preview ---
     if bank_file is not None:
         try:
-            # robust reader with unique columns + csv_row protection
             st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding, decimal)
-            if st.session_state.bank_csv_df is None or not isinstance(st.session_state.bank_csv_df, pd.DataFrame):
-                raise ValueError("Die Datei konnte nicht in eine Tabelle umgewandelt werden.")
+            df_src = st.session_state.bank_csv_df
 
+            if not isinstance(df_src, pd.DataFrame) or df_src.empty:
+                raise ValueError("Datei enthält keine Datenzeilen.")
 
             st.markdown("**Ab welcher Zeile beginnen die Daten?** (1 = erste Zeile der Datei)")
             st.session_state.bank_start_row = st.number_input(
                 "Startzeile (1-basiert)", min_value=1, value=int(st.session_state.bank_start_row), step=1
             )
 
-            df_src = st.session_state.bank_csv_df
-            df_view = df_src.iloc[st.session_state.bank_start_row - 1 :].copy()
+            start_idx = max(0, int(st.session_state.bank_start_row) - 1)
+            if start_idx >= len(df_src):
+                raise ValueError("Startzeile liegt hinter dem Dateiende.")
 
-            # if the file already had a csv_row, keep it but reserve our own
+            # Build safe view and reserve our own csv_row
+            df_view = df_src.iloc[start_idx:].copy()
             if "csv_row" in df_view.columns:
                 df_view = df_view.rename(columns={"csv_row": "csv_row_file"})
-            df_view.insert(0, "csv_row", df_view.index + 1)  # original 1-based row numbers
+            df_view.insert(0, "csv_row", df_view.index + 1)  # 1-based original row no.
+            df_view = df_view.reset_index(drop=True)
 
             st.session_state.bank_csv_view_df = df_view
 
             st.success(f"Verwende {len(df_view)} Datenzeilen ab Zeile {st.session_state.bank_start_row}.")
             st.dataframe(df_view.head(50), use_container_width=True, hide_index=True)
+
         except Exception as e:
+            st.session_state.bank_csv_view_df = None
             st.error(f"CSV konnte nicht gelesen werden: {e}")
 
     src_for_mapping = st.session_state.get("bank_csv_view_df", None)
-    if src_for_mapping is not None and not src_for_mapping.empty:
+
+    # --- mapping UI only when we truly have rows ---
+    if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
         st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
 
-        # user maps only these three
+        # Only these are mapped by the user
+        # (All headers except our synthetic csv_row are available)
         cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
 
         c1, c2 = st.columns(2)
         st.session_state.bank_map["datum"]  = c1.selectbox("datum", options=cols, index=0)
-        st.session_state.bank_map["betrag"] = c2.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
+        st.session_state.bank_map["betrag"] = c2.selectbox("betrag (positiv = Debit / negativ = Kredit)", options=cols, index=0)
 
         c3, _ = st.columns([2,1])
         st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
 
-        def pick(src, key):
+        # Safe picker: always returns a Series matching src_for_mapping length
+        def pick(key: str) -> pd.Series:
             sel = st.session_state.bank_map.get(key)
-            if sel and sel in src.columns:
-                return src[sel]
-            return pd.Series([""] * len(src), index=src.index, dtype="string")
+            if sel and sel in src_for_mapping.columns:
+                return src_for_mapping[sel]
+            return pd.Series([""] * len(src_for_mapping), index=src_for_mapping.index, dtype="string")
 
-        def convert_to_grid():
+        def convert_to_grid_and_advance():
             src = src_for_mapping
 
             df_new = pd.DataFrame({
-                "csv_row":        src["csv_row"],  # keep for traceability
-                "buchungsnummer": "",              # leave blank; can auto-generate later
-                "datum":          pick(src, "datum").apply(_parse_date_to_iso),
-                "betrag":         pick(src, "betrag").apply(_to_float),
-                "soll":           "",              # auto-assign below if bank selected
+                "csv_row":        src["csv_row"],                        # traceability
+                "buchungsnummer": "",                                    # left blank (auto-ref later)
+                "datum":          pick("datum").apply(_parse_date_to_iso),
+                "betrag":         pick("betrag").apply(_to_float),
+                "soll":           "",                                    # auto-fill by bank/sign if set
                 "haben":          "",
-                "beschreibung":   pick(src, "beschreibung").astype(str),
+                "beschreibung":   pick("beschreibung").astype(str),
             })
 
-            # If no dates parsed, default to today
+            # Default date if parsing failed everywhere
             if (df_new["datum"] == "").all():
                 df_new["datum"] = dt_date.today().isoformat()
 
-            # Auto-assign selected bank account by sign (only if empty in target)
+            # Assign selected bank account to soll/haben by sign (only if empty in target)
             if st.session_state.selected_bank_number:
-                pos_mask = df_new["betrag"].fillna(0) > 0
-                neg_mask = df_new["betrag"].fillna(0) < 0
+                pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
+                neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
                 df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
                 df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
 
-            # Normalize schema & types for the editor
+            # Normalize schema/types for the editor (prevents Streamlit type errors)
             st.session_state.bulk_df = ensure_schema(df_new)
 
-        # One button = convert AND advance
-        if st.button("Weiter → 3) Kontrolle & Import"):
-            convert_to_grid()
+            # Advance to step 3
             st.session_state.step = 3
-            st.experimental_rerun()
+            st.rerun()
+
+        # Single button that converts AND advances
+        st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
+    else:
+        st.info("Lade eine Datei und wähle eine gültige Startzeile, um fortzufahren.")
 
 
 # =========================
