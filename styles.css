@@ -18,7 +18,7 @@
 html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;color:var(--text)!important;}
 .block-container{max-width:1200px;padding-top:1.5rem!important;padding-bottom:3rem!important;}
 h1,h2,h3{color:var(--text)!important;letter-spacing:.2px;}
-h1{font-size:1.8rem!important;margin:.25rem 0 24px;}
+h1{font-size:1.8rem!important;margin:.25rem 0 22px;}
 h2{font-size:1.35rem!important;margin:1rem 0 .5rem;}
 h3{font-size:1.05rem!important;margin:.75rem 0 .25rem;}
 p,label,.stMarkdown,.stCaption{color:var(--muted)!important;}
@@ -39,39 +39,25 @@ a:hover{color:#1F2E44!important;text-decoration:underline;}
 /* File uploader */
 [data-testid="stFileUploaderDropzone"]{background:var(--card)!important;border:1px dashed var(--border)!important;border-radius:12px!important;}
 
-/* ===== Step flow (first horizontal block) ===== */
-[data-testid="stHorizontalBlock"]:first-of-type{display:flex;align-items:center;gap:16px;}
+/* ===== Step flow row (no arrows) ===== */
+[data-testid="stHorizontalBlock"]:first-of-type{
+  display:flex;align-items:center;gap:14px;
+}
+[data-testid="stHorizontalBlock"]:first-of-type>div{flex:0 0 auto;}
+[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(4){margin-left:auto;} /* reset to the right */
 
-/* shrink-to-fit columns; push the 4th (Reset) to the right */
-[data-testid="stHorizontalBlock"]:first-of-type>div{flex:0 0 auto;position:relative;}
-[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(4){margin-left:auto;}
-
-/* step pills = outline buttons */
+/* Step pills = outline buttons */
 [data-testid="stHorizontalBlock"]:first-of-type .stButton>button{
   background:#fff!important;color:var(--text)!important;border:1px solid var(--outline)!important;
-  border-radius:999px!important;padding:9px 14px!important;font-weight:600!important;
+  border-radius:999px!important;padding:8px 14px!important;font-weight:600!important;
 }
 [data-testid="stHorizontalBlock"]:first-of-type .stButton>button:hover{border-color:#94A3B8!important;}
 
-/* arrows between the first three steps only */
-[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(-n+3)::after{
-  content:"➜";position:absolute;right:-10px;top:50%;transform:translateY(-50%);
-  color:#94A3B8;font-size:14px;font-weight:700;pointer-events:none;
-}
-
-/* make the Reset pill look neutral */
-[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(4) .stButton>button{
-  border-color:var(--border)!important;color:var(--text)!important;
-}
-
 /* ===== Buttons (global) ===== */
-/* 1) Primary CTAs: strong contrast used by: st.form_submit_button, baseButton primary, and st.button fallback */
+/* Primary CTAs: st.form_submit_button, baseButton primary, and any primary-kind buttons */
 div[data-testid="stFormSubmitButton"]>button,
 [data-testid^="baseButton-primary"]>button,
-button[kind="primary"],
-/* fallback if a CTA is rendered as plain st.button */
-.cta button,
-.stButton>button[data-baseweb="button"].ekooqlz0{ /* tolerate Streamlit class drift */
+button[kind="primary"]{
   background:var(--primary)!important;color:var(--primary-ink)!important;
   border:1px solid var(--primary-hover)!important;border-radius:12px!important;
   padding:12px 18px!important;font-weight:700!important;letter-spacing:.2px;
@@ -79,27 +65,30 @@ button[kind="primary"],
 }
 div[data-testid="stFormSubmitButton"]>button:hover,
 [data-testid^="baseButton-primary"]>button:hover,
-button[kind="primary"]:hover,
-.cta button:hover{background:var(--primary-hover)!important;transform:translateY(-1px);box-shadow:0 10px 22px rgba(31,93,158,.30)!important;}
+button[kind="primary"]:hover{
+  background:var(--primary-hover)!important;transform:translateY(-1px);
+  box-shadow:0 10px 22px rgba(31,93,158,.30)!important;
+}
 div[data-testid="stFormSubmitButton"]>button:disabled,
 [data-testid^="baseButton-primary"]>button:disabled{opacity:.6!important;box-shadow:none!important;transform:none!important;}
 
-/* 2) Secondary / outline */
-[data-testid^="baseButton-secondary"]>button, button[kind="secondary"]{
+/* Secondary / outline */
+[data-testid^="baseButton-secondary"]>button,button[kind="secondary"]{
   background:#fff!important;color:var(--primary)!important;border:1px solid var(--primary)!important;border-radius:999px!important;font-weight:600!important;
 }
-[data-testid^="baseButton-secondary"]>button:hover, button[kind="secondary"]:hover{background:rgba(15,76,129,.06)!important;}
+[data-testid^="baseButton-secondary"]>button:hover,button[kind="secondary"]:hover{background:rgba(15,76,129,.06)!important;}
 
-/* 3) Regular st.button (non-CTA) */
+/* Regular st.button (non-CTA) */
 .stButton>button{
   background:#fff!important;color:var(--text)!important;border:1px solid var(--outline)!important;border-radius:10px!important;
   padding:.55rem 1rem!important;font-weight:600!important;
 }
 .stButton>button:hover{border-color:#94A3B8!important;}
 
-/* 4) Download */
-div[data-testid="stDownloadButton"]>button, div[data-testid="stDownloadButton"] a{
+/* Download (button or <a>) */
+div[data-testid="stDownloadButton"]>button,div[data-testid="stDownloadButton"] a{
   background:var(--primary)!important;color:#fff!important;border:1px solid var(--primary-hover)!important;border-radius:12px!important;
   padding:.6rem 1.1rem!important;font-weight:700!important;text-decoration:none!important;
 }
-div[data-testid="stDownloadButton"]>button:hover, div[data-testid="stDownloadButton"] a:hover{background:var(--primary-hover)!important;}
+div[data-testid="stDownloadButton"]>button:hover,div[data-testid="stDownloadButton"] a:hover{background:var(--primary-hover)!important;}
+
