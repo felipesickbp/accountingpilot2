@@ -199,40 +199,51 @@ def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> 
             raise ValueError(f"Excel-Datei konnte nicht gelesen werden: {e}")
 
         df.columns = _make_unique_columns(df.columns, prefix="col")
-        # Reserve 'csv_row'
         if "csv_row" in df.columns:
             df = df.rename(columns={"csv_row": "csv_row_file"})
         return df
 
-    # Try CSV with various encodings and delimiters
+    # CSV path
     encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
     delimiters = [None, ";", ",", "\t", "|"]
     errors = []
+
     for enc in encodings:
         for sep in delimiters:
+            # Try with header row
             try:
-                df = pd.read_csv(io.BytesIO(raw), sep=sep, engine="python",
-                                 encoding=enc, decimal=decimal, dtype=str,
-                                 keep_default_na=False, header=0)
+                df = pd.read_csv(
+                    io.BytesIO(raw),
+                    sep=sep, engine="python", encoding=enc, decimal=decimal,
+                    dtype=str, keep_default_na=False, header=0
+                )
                 if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
                     df.columns = _make_unique_columns(df.columns, prefix="col")
                     if "csv_row" in df.columns:
                         df = df.rename(columns={"csv_row": "csv_row_file"})
                     return df
             except Exception as e:
-                errs.append(f"h=0 {enc}/{repr(sep)} → {e}")
+                errors.append(f"header=0 {enc}/{repr(sep)} → {e}")
+
+            # Fallback: no header
             try:
-                df = pd.read_csv(io.BytesIO(raw), sep=sep, engine="python",
-                                 encoding=enc, decimal=decimal, dtype=str,
-                                 keep_default_na=False, header=None)
+                df = pd.read_csv(
+                    io.BytesIO(raw),
+                    sep=sep, engine="python", encoding=enc, decimal=decimal,
+                    dtype=str, keep_default_na=False, header=None
+                )
                 if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
                     df.columns = _make_unique_columns([f"col_{i+1}" for i in range(df.shape[1])], prefix="col")
                     if "csv_row" in df.columns:
                         df = df.rename(columns={"csv_row": "csv_row_file"})
                     return df
             except Exception as e:
-                errs.append(f"h=None {enc}/{repr(sep)} → {e}")
-    raise ValueError("CSV konnte nicht gelesen werden: " + "; ".join(errs[:6]) + (" …" if len(errs) > 6 else ""))
+                errors.append(f"header=None {enc}/{repr(sep)} → {e}")
+
+    msg = "CSV konnte nicht gelesen werden: " + "; ".join(errors[:6])
+    if len(errors) > 6:
+        msg += " …"
+    raise ValueError(msg)
 
 # =========================
 # SESSION DEFAULTS
