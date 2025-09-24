@@ -165,7 +165,7 @@ div[data-testid="stFormSubmitButton"] > button:disabled,
   color: #0F4C81 !important;
   border: 1px solid #0F4C81 !important;
   border-radius: 999px !important;
-  padding: 10px 16px !important;
+  padding: 5px 5px !important;
   font-weight: 600 !important;
 }
 [data-testid^="baseButton-secondary"] > button:hover{
