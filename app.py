@@ -214,16 +214,27 @@ col_enc1, col_enc2 = st.columns([2,1])
 encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=0)
 decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
 
-def _try_read_csv(f):
-    # Robust Einlesen (Delimiter autodetect, flexibles quoting)
-    return pd.read_csv(
-        f, 
-        sep=None, engine="python",
-        encoding=encoding,
-        decimal=decimal,
-        dtype=str,   # roh als Text; mappen/konvertieren später
-        keep_default_na=False
-    )
+def _try_read_csv(uploaded_file):
+    # Read bytes once; try multiple encodings safely
+    raw = uploaded_file.getvalue()
+    candidates = [encoding, "utf-8-sig", "cp1252", "latin-1", "utf-16"]
+    tried = []
+    for enc in candidates:
+        if enc in tried: 
+            continue
+        tried.append(enc)
+        try:
+            return pd.read_csv(
+                io.BytesIO(raw),
+                sep=None, engine="python",
+                encoding=enc,
+                decimal=decimal,
+                dtype=str,            # keep everything text first
+                keep_default_na=False
+            )
+        except Exception:
+            continue
+    raise ValueError(f"CSV konnte nicht gelesen werden (getestet: {', '.join(tried)})")
 
 if bank_file is not None:
     try:
@@ -287,7 +298,11 @@ if build_btn:
     mp  = st.session_state.bank_map
 
     def pick(colname):
-        return src[mp[colname]] if (mp.get(colname) and mp[colname] in src.columns) else ""
+    sel = mp.get(colname)
+    if sel and sel in src.columns:
+        return src[sel]
+    # always return a Series of correct length
+    return pd.Series([""] * len(src), index=src.index, dtype="string")
 
     df_new = pd.DataFrame({
         "buchungsnummer": pick("buchungsnummer"),
@@ -317,11 +332,13 @@ with st.form("bulk_entries_form", clear_on_submit=False):
         hide_index=True,
         column_config={
             "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr (wenn Checkbox aktiv)."),
-            "datum": st.column_config.DateColumn("datum", format="YYYY-MM-DD"),
+            # Use TextColumn to avoid dtype errors; we parse on submit anyway
+            "datum": st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
             "betrag": st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
             "soll": st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
             "haben": st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
-        },
+        }
+
     )
     colA, colB = st.columns(2)
     auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
