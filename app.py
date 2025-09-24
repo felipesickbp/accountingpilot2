@@ -31,6 +31,39 @@ MANUAL_ENTRIES_V3 = f"{API_V3}/accounting/manual_entries"
 NEXT_REF_V3       = f"{API_V3}/accounting/manual_entries/next_ref_nr"
 ACCOUNTS_V3       = f"{API_V3}/accounting/accounts"
 
+
+# v2 (read-only import of accounts)
+API_V2 = "https://api.bexio.com/2.0"
+
+def _auth_v2():
+    return {
+        **auth_header(st.session_state.oauth["access_token"]),
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+def fetch_all_accounts_v2(limit=2000):
+    """
+    /2.0/accounts/search with 'not_null' to fetch all accounts; paginated by offset.
+    """
+    url = f"{API_V2}/accounts/search"
+    offset = 0
+    rows = []
+    payload = [ {"field": "name", "value": "", "criteria": "not_null"} ]
+    while True:
+        params = {"limit": limit, "offset": offset}
+        r = requests.post(url, headers=_auth_v2(), json=payload, params=params, timeout=30)
+        r.raise_for_status()
+        chunk = r.json() if isinstance(r.json(), list) else []
+        if not chunk:
+            break
+        rows.extend(chunk)
+        if len(chunk) < limit:
+            break
+        offset += limit
+    return rows
+
+
 SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘")
@@ -40,6 +73,10 @@ if "oauth" not in st.session_state:
 if "bulk_df" not in st.session_state:
     st.session_state.bulk_df = None
 
+if "acct_map_by_number" not in st.session_state:
+    st.session_state.acct_map_by_number = {}
+if "acct_df" not in st.session_state:
+    st.session_state.acct_df = None
 
 def auth_header(token):
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -123,6 +160,51 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 # Accounts table (all accounts & IDs)
 # =========================
 with st.expander("📒 Konto-IDs aus deinem Mandanten (v3‑Quellen)"):
+    # ---- v2 Kontenplan import (read-only, builds number -> id mapping) ----
+st.subheader("Kontenplan aus bexio importieren (READ via v2)")
+st.caption("Nur zum Einlesen der Mapping-Tabelle (account_no → id). Postings bleiben über v3.")
+
+col_i1, col_i2 = st.columns([1,1])
+do_import = col_i1.button("Kontenplan aus bexio importieren")
+clear_map = col_i2.button("Mapping leeren")
+
+if clear_map:
+    st.session_state.acct_map_by_number = {}
+    st.session_state.acct_df = None
+    st.success("Lokales Mapping zurückgesetzt.")
+
+if do_import:
+    try:
+        with st.spinner("Lade Kontenplan …"):
+            accs = fetch_all_accounts_v2()
+        if not accs:
+            st.warning("Keine Konten gefunden.")
+        else:
+            df = pd.DataFrame([{
+                "id": a.get("id"),
+                "number": a.get("account_no"),
+                "name": a.get("name"),
+                "type": a.get("account_type"),
+                "active": a.get("is_active"),
+            } for a in accs]).sort_values(["number", "id"], na_position="last")
+            mp = {}
+            for _, r in df.iterrows():
+                n = str(r["number"]).strip() if pd.notna(r["number"]) else None
+                i = int(r["id"]) if pd.notna(r["id"]) else None
+                if n and i:
+                    mp[n] = i
+            st.session_state.acct_map_by_number = mp
+            st.session_state.acct_df = df
+            st.success(f"{len(df)} Konten importiert.")
+    except requests.HTTPError as e:
+        st.error(f"HTTP error: {e.response.status_code} – {e.response.text}")
+    except Exception as e:
+        st.error(f"Import fehlgeschlagen: {e}")
+
+if st.session_state.acct_df is not None:
+    st.dataframe(st.session_state.acct_df, use_container_width=True, hide_index=True)
+    st.caption("Diese Tabelle liefert die **externe ID** (= `id`) pro Kontonummer.")
+
     try:
         rows = []
         # 1) Banking-linked GL accounts (reliable v3 endpoint)
@@ -228,6 +310,23 @@ colA, colB = st.columns(2)
 auto_ref = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
 post_btn = colB.button("Buchungen posten", type="primary")
 
+def resolve_account_id_from_number_or_id(val):
+    """
+    Accept a raw account_id (int) OR an account number (string),
+    return the account_id (int) using the imported mapping if present.
+    """
+    if val is None or str(val).strip() == "":
+        return None
+    # Already an int-like id?
+    try:
+        return int(val)
+    except Exception:
+        pass
+    # Lookup by number (string)
+    key = str(val).strip()
+    return int(st.session_state.acct_map_by_number[key]) if key in st.session_state.acct_map_by_number else None
+
+
 # =========================
 # Posting logic (one API call per Zeile)
 # =========================
@@ -259,10 +358,11 @@ if post_btn:
             if amount <= 0:
                 raise ValueError("Betrag muss > 0 sein.")
 
-            debit_id = int(row.get("soll"))
-            credit_id = int(row.get("haben"))
-            if debit_id <= 0 or credit_id <= 0:
-                raise ValueError("soll/haben (account_id) müssen > 0 sein.")
+            debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
+            credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
+            if not debit_id or not credit_id:
+                raise ValueError("Ungültiges Konto: konnte keine account_id für soll/haben auflösen (bitte Kontenplan importieren).")
+
 
             ref_nr = str(row.get("buchungsnummer") or "").strip()
             if auto_ref and not ref_nr:
