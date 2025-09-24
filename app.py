@@ -192,29 +192,125 @@ if do_import:
     except Exception as e:
         st.error(f"Import fehlgeschlagen: {e}")
 
-if st.session_state.acct_df is not None:
-    st.dataframe(st.session_state.acct_df, use_container_width=True, hide_index=True)
-    st.caption("Diese Tabelle liefert die **externe ID** (= `id`) pro Kontonummer.")
+# ======================================================
+# STEP 2 — Bankdatei importieren (CSV -> Vorschau)
+# ======================================================
+st.header("2) Bankdatei importieren (CSV)")
+st.caption("Lade eine CSV hoch. Wähle die Spalten, mit denen wir das Bexio-Gitter füllen.")
 
-# Create an initial empty grid if not present (after session defaults)
-if st.session_state.bulk_df is None:
-    st.session_state.bulk_df = pd.DataFrame(
-        {
-            "buchungsnummer": ["" for _ in range(5)],
-            "datum": [dt_date.today() for _ in range(5)],
-            "betrag": [0.00 for _ in range(5)],
-            "soll": ["" for _ in range(5)],   # text input (Kontonummer or id)
-            "haben": ["" for _ in range(5)],  # text input (Kontonummer or id)
-        }
+if "bank_csv_df" not in st.session_state:
+    st.session_state.bank_csv_df = None
+if "bank_map" not in st.session_state:
+    st.session_state.bank_map = {
+        "buchungsnummer": None,
+        "datum": None,
+        "betrag": None,
+        "soll": None,   # Kontonummer (oder id)
+        "haben": None,  # Kontonummer (oder id)
+    }
+
+bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
+col_enc1, col_enc2 = st.columns([2,1])
+encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=0)
+decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
+
+def _try_read_csv(f):
+    # Robust Einlesen (Delimiter autodetect, flexibles quoting)
+    return pd.read_csv(
+        f, 
+        sep=None, engine="python",
+        encoding=encoding,
+        decimal=decimal,
+        dtype=str,   # roh als Text; mappen/konvertieren später
+        keep_default_na=False
     )
 
-st.subheader("Mehrere Buchungen erfassen")
-st.caption("Spalten: **buchungsnummer**, **datum**, **betrag**, **soll**, **haben**. "
-           "Trage in **soll/haben** die **Kontonummer** ein (z. B. 1023); die App nutzt automatisch die passende **account_id** aus dem importierten Kontenplan.")
+if bank_file is not None:
+    try:
+        st.session_state.bank_csv_df = _try_read_csv(bank_file)
+        st.success(f"CSV geladen: {st.session_state.bank_csv_df.shape[0]} Zeilen, {st.session_state.bank_csv_df.shape[1]} Spalten")
+        st.dataframe(st.session_state.bank_csv_df.head(50), use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.error(f"CSV konnte nicht gelesen werden: {e}")
 
+# Mapping-UI, falls CSV vorhanden
+if st.session_state.bank_csv_df is not None and len(st.session_state.bank_csv_df.columns) > 0:
+    st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
+    cols = ["<keine>"] + list(st.session_state.bank_csv_df.columns)
+    c1, c2 = st.columns(2)
+    st.session_state.bank_map["buchungsnummer"] = c1.selectbox("buchungsnummer", options=cols, index=0)
+    st.session_state.bank_map["datum"]          = c2.selectbox("datum", options=cols, index=0)
+    c3, c4 = st.columns(2)
+    st.session_state.bank_map["betrag"]         = c3.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
+    st.session_state.bank_map["soll"]           = c4.selectbox("soll (Kontonummer oder account_id)", options=cols, index=0)
+    st.session_state.bank_map["haben"]          = st.selectbox("haben (Kontonummer oder account_id)", options=cols, index=0)
+
+    build_btn = st.button("Konvertieren → Bexio-Gitter")
+else:
+    build_btn = False
+
+# ======================================================
+# STEP 3 — Gitter befüllen, bearbeiten, posten
+# ======================================================
+
+def _parse_date_to_iso(x: str) -> str:
+    s = (x or "").strip()
+    if not s:
+        return ""
+    try:
+        # Cleveres Parsen, erlaubt 01.02.2025, 1/2/25, etc.
+        d = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.isna(d):
+            d = pd.to_datetime(s, dayfirst=False, errors="coerce")
+        if pd.isna(d):
+            return ""
+        return d.date().isoformat()
+    except Exception:
+        return ""
+
+def _to_float(x: str) -> float:
+    if x is None: 
+        return 0.0
+    s = str(x).strip().replace("’","").replace("'","")
+    # Versuche beide Dezimal-Formate
+    try:
+        return float(s.replace(" ", "").replace(",", "."))  # 1 234,56 -> 1234.56
+    except Exception:
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+# Create/edit bulk_df from mapping
+if build_btn:
+    src = st.session_state.bank_csv_df
+    mp  = st.session_state.bank_map
+
+    def pick(colname):
+        return src[mp[colname]] if (mp.get(colname) and mp[colname] in src.columns) else ""
+
+    df_new = pd.DataFrame({
+        "buchungsnummer": pick("buchungsnummer"),
+        "datum":          pick("datum").apply(_parse_date_to_iso),
+        "betrag":         pick("betrag").apply(_to_float),
+        "soll":           pick("soll").astype(str),
+        "haben":          pick("haben").astype(str),
+    })
+
+    # Fallbacks/Defaults
+    if "datum" in df_new and (df_new["datum"] == "").all():
+        df_new["datum"] = dt_date.today().isoformat()
+
+    st.session_state.bulk_df = df_new
+    st.success(f"Gitter befüllt: {len(df_new)} Zeilen. Du kannst jetzt editieren & posten.")
+
+# Editor im Formular (stabil, kein Input-Verlust)
+st.subheader("3) Kontrolle & Import")
 with st.form("bulk_entries_form", clear_on_submit=False):
     edited_df = st.data_editor(
-        st.session_state.bulk_df,
+        st.session_state.bulk_df if st.session_state.bulk_df is not None else pd.DataFrame(
+            {"buchungsnummer": [], "datum": [], "betrag": [], "soll": [], "haben": []}
+        ),
         key="bulk_grid",
         num_rows="dynamic",
         use_container_width=True,
@@ -228,116 +324,115 @@ with st.form("bulk_entries_form", clear_on_submit=False):
         },
     )
     colA, colB = st.columns(2)
-    auto_ref = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
-    submitted = colB.form_submit_button("Buchungen posten", type="primary")
+    auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
+    submitted  = colB.form_submit_button("Buchungen posten", type="primary")
 
-# Persist edits back to session AFTER the form block
+# Persist back
 st.session_state.bulk_df = edited_df
 
+# --- Kontonummer/id → account_id Auflösung ---
 def resolve_account_id_from_number_or_id(val):
     """
-    Accept a raw account_id (int) OR an account number (string),
-    return the account_id (int) using the imported mapping if present.
+    Accept Kontonummer (e.g. "1023") OR account_id (int-like string "284").
+    Prefer the Kontonummer→ID mapping; if not found, treat as raw id.
     """
-    if val is None or str(val).strip() == "":
+    if val is None:
         return None
-    # Already an int-like id?
-    try:
-        return int(val)
-    except Exception:
-        pass
-    # Lookup by number (string)
     key = str(val).strip()
-    return int(st.session_state.acct_map_by_number[key]) if key in st.session_state.acct_map_by_number else None
+    if key == "":
+        return None
+    # 1) Prefer mapping by Kontonummer
+    if key in st.session_state.acct_map_by_number:
+        return int(st.session_state.acct_map_by_number[key])
+    # 2) Otherwise accept it as a raw account_id
+    try:
+        return int(key)
+    except Exception:
+        return None
 
-# =========================
-# Posting logic (one API call per row)
-# =========================
+
+# --- POSTEN ---
 if submitted:
-    rows = edited_df.fillna("")
-    results = []
+    if edited_df is None or edited_df.empty:
+        st.warning("Keine Zeilen im Gitter.")
+    else:
+        rows = edited_df.fillna("")
+        results = []
+        for idx, row in rows.iterrows():
+            try:
+                if (str(row.get("datum","")).strip() == "" and
+                    float(row.get("betrag",0) or 0) == 0 and
+                    str(row.get("soll","")).strip() == "" and
+                    str(row.get("haben","")).strip() == ""):
+                    continue
 
-    for idx, row in rows.iterrows():
-        try:
-            # Skip completely empty lines
-            if (str(row.get("datum", "")).strip() == "" and
-                float(row.get("betrag", 0) or 0) == 0 and
-                str(row.get("soll", "")).strip() == "" and
-                str(row.get("haben", "")).strip() == ""):
-                continue
+                # Datum
+                if isinstance(row.get("datum"), dt_date):
+                    date_iso = row["datum"].isoformat()
+                else:
+                    date_iso = _parse_date_to_iso(str(row.get("datum","")))
+                if not date_iso:
+                    raise ValueError(f"Ungültiges Datum in Zeile {idx+1}")
 
-            # Validate required fields
-            d = row.get("datum")
-            if isinstance(d, dt_date):
-                date_iso = d.isoformat()
-            else:
-                date_iso = str(d)
-                if not isinstance(date_iso, str) or len(date_iso.split("-")) != 3:
-                    raise ValueError("Ungültiges Datum – erwartet YYYY-MM-DD.")
+                amount = float(row.get("betrag") or 0)
+                if amount <= 0:
+                    raise ValueError(f"Betrag muss > 0 sein (Zeile {idx+1}).")
 
-            amount = float(row.get("betrag") or 0)
-            if amount <= 0:
-                raise ValueError("Betrag muss > 0 sein.")
+                debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
+                credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
+                if not debit_id or not credit_id:
+                    raise ValueError(f"Konto unbekannt (Zeile {idx+1}): bitte Kontonummern prüfen / Kontenplan importieren.")
 
-            debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
-            credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
-            if not debit_id or not credit_id:
-                raise ValueError("Ungültiges Konto: konnte keine account_id für soll/haben auflösen (bitte Kontenplan importieren).")
+                ref_nr = str(row.get("buchungsnummer") or "").strip()
+                if auto_ref and not ref_nr:
+                    rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
+                    rr.raise_for_status()
+                    ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-            ref_nr = str(row.get("buchungsnummer") or "").strip()
-            if auto_ref and not ref_nr:
-                rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
-                rr.raise_for_status()
-                ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
-
-            payload = {
-                "type": "manual_single_entry",
-                "date": date_iso,
-                "entries": [
-                    {
-                        "debit_account_id": debit_id,
-                        "credit_account_id": credit_id,
-                        "amount": amount,
+                payload = {
+                    "type": "manual_single_entry",
+                    "date": date_iso,
+                    "entries": [{
+                        "debit_account_id": int(debit_id),
+                        "credit_account_id": int(credit_id),
+                        "amount": float(amount),
                         "description": "",
-                        "currency_id": DEFAULT_CURRENCY_ID,
-                        "currency_factor": DEFAULT_CURRENCY_FACTOR,
-                    }
-                ],
-            }
-            if ref_nr:
-                payload["reference_nr"] = ref_nr
+                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                    }],
+                }
+                if ref_nr:
+                    payload["reference_nr"] = ref_nr
 
-            r = requests.post(
-                MANUAL_ENTRIES_V3,
-                headers={**_auth(), "Content-Type": "application/json"},
-                json=payload,
-                timeout=30,
-            )
-            if r.status_code == 401:
-                refresh_access_token()
                 r = requests.post(
                     MANUAL_ENTRIES_V3,
                     headers={**_auth(), "Content-Type": "application/json"},
-                    json=payload,
-                    timeout=30,
+                    json=payload, timeout=30
                 )
-            if r.status_code == 429:
-                results.append({"row": idx + 1, "status": "Rate limited (429)"})
-                continue
+                if r.status_code == 401:
+                    refresh_access_token()
+                    r = requests.post(
+                        MANUAL_ENTRIES_V3,
+                        headers={**_auth(), "Content-Type": "application/json"},
+                        json=payload, timeout=30
+                    )
+                if r.status_code == 429:
+                    results.append({"row": idx + 1, "status": "Rate limited (429)"})
+                    continue
 
-            r.raise_for_status()
-            results.append({"row": idx + 1, "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
-        except requests.HTTPError as e:
-            try:
-                err_txt = e.response.text
-            except Exception:
-                err_txt = str(e)
-            results.append({"row": idx + 1, "status": f"HTTP {e.response.status_code}", "error": err_txt})
-        except Exception as e:
-            results.append({"row": idx + 1, "status": "ERROR", "error": str(e)})
+                r.raise_for_status()
+                results.append({"row": idx + 1, "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
+            except requests.HTTPError as e:
+                try:
+                    err_txt = e.response.text
+                except Exception:
+                    err_txt = str(e)
+                results.append({"row": idx + 1, "status": f"HTTP {e.response.status_code}", "error": err_txt})
+            except Exception as e:
+                results.append({"row": idx + 1, "status": "ERROR", "error": str(e)})
 
-    if not results:
-        st.info("Keine gültigen Zeilen zum Posten gefunden.")
-    else:
-        st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
-        st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+        if not results:
+            st.info("Keine gültigen Zeilen zum Posten gefunden.")
+        else:
+            st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
+            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
