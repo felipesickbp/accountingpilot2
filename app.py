@@ -89,17 +89,43 @@ def _to_float(x) -> float:
             return 0.0
 
 def resolve_account_id_from_number_or_id(val):
+    """
+    Accepts:
+      - Kontonummer like "1020", "1020-A", "10 20", "1'020"
+      - raw account_id like "12345"
+    Returns account_id (int) or None.
+    """
     if val is None:
         return None
-    key = str(val).strip()
-    if key == "":
+    raw = str(val).strip()
+    if raw == "":
         return None
-    if key in st.session_state.acct_map_by_number:
-        return int(st.session_state.acct_map_by_number[key])
+
+    # Quick path: exact key
+    if raw in st.session_state.acct_map_by_number:
+        try:
+            return int(st.session_state.acct_map_by_number[raw])
+        except Exception:
+            pass
+
+    # Normalize possible kontonummer formats
+    # - drop everything after a dash (e.g. "1020-A" -> "1020")
+    # - remove spaces / thousands-separators ' and ’
+    norm = raw.split("-", 1)[0]
+    norm = norm.replace("’", "").replace("'", "").replace(" ", "")
+
+    if norm in st.session_state.acct_map_by_number:
+        try:
+            return int(st.session_state.acct_map_by_number[norm])
+        except Exception:
+            pass
+
+    # If it's an integer, assume it's already an account_id
     try:
-        return int(key)
+        return int(norm)
     except Exception:
         return None
+
 
 def _make_unique_columns(cols, prefix="col"):
     out, seen = [], {}
