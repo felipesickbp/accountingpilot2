@@ -421,14 +421,7 @@ if st.session_state.step == 1:
             # Fallback: all active accounts
             banks_df = df[active_mask].copy()
 
-        # Quick search
-        filt = st.text_input("Kontensuche (Nummer/Name enthält …)", value="")
-        if filt.strip():
-            s = filt.strip().lower()
-            banks_df = banks_df[
-                banks_df["number_str"].str.lower().str.contains(s, na=False) |
-                banks_df["name_str"].str.lower().str.contains(s, na=False)
-            ]
+      
 
         if not banks_df.empty:
             opts = [f"{r['number_str']} · {r['name_str']} (id {int(r['id'])})" for _, r in banks_df.iterrows()]
