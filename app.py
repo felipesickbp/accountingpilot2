@@ -37,44 +37,30 @@ SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘", layout="wide")
 
+# =========================
+# SCHEMA & HELPERS
+# =========================
 
-
-# --- Keep schema stable for st.data_editor ---
-REQUIRED_COLS = [
-    "csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung"
-]
+REQUIRED_COLS = ["csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung"]
 
 def ensure_schema(df_in: pd.DataFrame) -> pd.DataFrame:
-    """
-    Returns a copy that ALWAYS has the exact columns expected by the editor,
-    with safe dtypes to satisfy Streamlit's column_config validation.
-    """
+    """Return a copy with exactly the REQUIRED_COLS and safe dtypes for data_editor."""
     df = pd.DataFrame(columns=REQUIRED_COLS)
     for c in REQUIRED_COLS:
-        if c in df_in.columns:
-            df[c] = df_in[c]
-        else:
-            df[c] = ""  # create empty columns as strings by default
+        df[c] = df_in[c] if c in df_in.columns else ""
 
-    # Types:
-    # - csv_row: Int64 (nullable integer) so it can show blanks nicely
-    # - betrag: float
-    # - other fields: string
+    # dtypes preferred by editor
     try:
         df["csv_row"] = pd.to_numeric(df["csv_row"], errors="coerce").astype("Int64")
     except Exception:
         df["csv_row"] = pd.Series([pd.NA]*len(df), dtype="Int64")
-
     df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
-
-    for col in ["buchungsnummer", "datum", "soll", "haben", "beschreibung"]:
-        df[col] = df[col].astype(str)
-
+    for c in ["buchungsnummer","datum","soll","haben","beschreibung"]:
+        df[c] = df[c].astype(str)
     return df
 
-
-def parse_date_flex(x: str) -> str:
-    s = (str(x) or "").strip()
+def _parse_date_to_iso(x: str) -> str:
+    s = (str(x) if x is not None else "").strip()
     if not s:
         return ""
     d = pd.to_datetime(s, dayfirst=True, errors="coerce")
@@ -82,8 +68,8 @@ def parse_date_flex(x: str) -> str:
         d = pd.to_datetime(s, dayfirst=False, errors="coerce")
     return "" if pd.isna(d) else d.date().isoformat()
 
-
-def to_float(x) -> float:
+def _to_float(x) -> float:
+    if x is None: return 0.0
     s = str(x).strip().replace("’","").replace("'","")
     try:
         return float(s.replace(" ", "").replace(",", "."))  # 1 234,56 -> 1234.56
@@ -91,25 +77,59 @@ def to_float(x) -> float:
         try:
             return float(s)
         except Exception:
-            return float("nan")
-
+            return 0.0
 
 def resolve_account_id_from_number_or_id(val):
+    """Accept a Kontonummer (preferred) or a raw account_id and return account_id (int)."""
     if val is None:
         return None
     key = str(val).strip()
     if key == "":
         return None
-    # Prefer mapping by kontonummer (from v2 import)
     if key in st.session_state.acct_map_by_number:
         return int(st.session_state.acct_map_by_number[key])
-    # Otherwise treat as raw account_id
     try:
         return int(key)
     except Exception:
         return None
 
+def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
+    """Robust CSV reader; also supports xlsx disguised as csv."""
+    raw = uploaded_file.getvalue()
+    # Excel magic number
+    if raw[:4] == b"PK\x03\x04":
+        df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
+        return df
 
+    encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
+    delimiters = [None, ";", ",", "\t", "|"]
+    errors = []
+    for enc in encodings:
+        for sep in delimiters:
+            try:
+                df = pd.read_csv(
+                    io.BytesIO(raw),
+                    sep=sep, engine="python",
+                    encoding=enc,
+                    decimal=decimal,
+                    dtype=str,
+                    keep_default_na=False,
+                )
+                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
+                    # Clean weird column headers like "Unnamed: 2"
+                    nice_cols = []
+                    for c in df.columns:
+                        sc = str(c).strip()
+                        if sc.lower().startswith("unnamed:"):
+                            nice_cols.append("")
+                        else:
+                            nice_cols.append(sc)
+                    df.columns = nice_cols
+                    return df
+            except Exception as e:
+                errors.append(f"{enc}/{repr(sep)} → {e}")
+    raise ValueError("CSV konnte nicht gelesen werden. Versuche: "
+                     + "; ".join(errors[:4]) + (" …" if len(errors) > 4 else ""))
 
 # =========================
 # SESSION DEFAULTS
@@ -135,12 +155,9 @@ if "bank_start_row" not in st.session_state:
     st.session_state.bank_start_row = 1
 if "bank_map" not in st.session_state:
     st.session_state.bank_map = {
-        "buchungsnummer": None,
         "datum": None,
         "betrag": None,
-        "soll": None,
-        "haben": None,
-        "beschreibung": None,   # <-- NEW
+        "beschreibung": None,  # only these three are mapped by the user
     }
 
 if "bulk_df" not in st.session_state:
@@ -238,78 +255,6 @@ def fetch_all_accounts_v2(limit=2000):
     return rows
 
 # =========================
-# SMALL UTILITIES
-# =========================
-def _parse_date_to_iso(x: str) -> str:
-    s = (str(x) if x is not None else "").strip()
-    if not s:
-        return ""
-    try:
-        d = pd.to_datetime(s, dayfirst=True, errors="coerce")
-        if pd.isna(d):
-            d = pd.to_datetime(s, dayfirst=False, errors="coerce")
-        if pd.isna(d):
-            return ""
-        return d.date().isoformat()
-    except Exception:
-        return ""
-
-def _to_float(x: str) -> float:
-    if x is None:
-        return 0.0
-    s = str(x).strip().replace("’","").replace("'","")
-    try:
-        return float(s.replace(" ", "").replace(",", "."))  # 1 234,56 -> 1234.56
-    except Exception:
-        try:
-            return float(s)
-        except Exception:
-            return 0.0
-
-def resolve_account_id_from_number_or_id(val):
-    """Accept a Kontonummer (preferred) or a raw account_id and return account_id (int)."""
-    if val is None:
-        return None
-    key = str(val).strip()
-    if key == "":
-        return None
-    if key in st.session_state.acct_map_by_number:
-        return int(st.session_state.acct_map_by_number[key])
-    try:
-        return int(key)
-    except Exception:
-        return None
-
-def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
-    """Robust CSV reader; also supports xlsx disguised as csv."""
-    raw = uploaded_file.getvalue()
-    # Excel magic number
-    if raw[:4] == b"PK\x03\x04":
-        df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
-        return df
-
-    encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
-    delimiters = [None, ";", ",", "\t", "|"]
-    errors = []
-    for enc in encodings:
-        for sep in delimiters:
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(raw),
-                    sep=sep, engine="python",
-                    encoding=enc,
-                    decimal=decimal,
-                    dtype=str,
-                    keep_default_na=False,
-                )
-                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-                    return df
-            except Exception as e:
-                errors.append(f"{enc}/{repr(sep)} → {e}")
-    raise ValueError("CSV konnte nicht gelesen werden. Versuche: "
-                     + "; ".join(errors[:4]) + (" …" if len(errors) > 4 else ""))
-
-# =========================
 # LAYOUT: HEADER + WIZARD NAV
 # =========================
 st.title("📘 Bexio Bulk Manual Entries")
@@ -343,7 +288,7 @@ if st.session_state.step == 1:
     st.subheader("1) Kontenplan aus bexio importieren")
     st.caption("Nur zum Einlesen der Mapping-Tabelle.")
 
-    c1, c2 = st.columns([1,1])
+    c1, _ = st.columns([1,1])
     if c1.button("Kontenplan importieren"):
         try:
             with st.spinner("Lade Kontenplan …"):
@@ -382,19 +327,18 @@ if st.session_state.step == 1:
         # Normalize for filtering
         df["number_str"] = df["number"].astype(str).str.strip()
         df["name_str"]   = df["name"].astype(str)
-        # Heuristic for bank/cash accounts: account_no 10xx or name contains keywords (case-insensitive)
+        # Heuristic for bank/cash accounts: 10xx or keywords
         is_bank_like = (
             df["number_str"].str.match(r"10\d{2}(-[A-Z])?$", na=False) |
             df["name_str"].str.contains(r"\b(bank|kasse|konto|cash)\b", case=False, regex=True, na=False)
         )
         active_mask = (df["active"] == True)
-
         banks_df = df[active_mask & is_bank_like].copy()
         if banks_df.empty:
             # Fallback: all active accounts
             banks_df = df[active_mask].copy()
 
-        # Simple filter box to quickly find 1020 etc.
+        # Quick search
         filt = st.text_input("Kontensuche (Nummer/Name enthält …)", value="")
         if filt.strip():
             s = filt.strip().lower()
@@ -440,15 +384,13 @@ elif st.session_state.step == 2:
     if bank_file is not None:
         try:
             st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding, decimal)
-
             st.markdown("**Ab welcher Zeile beginnen die Daten?** (1 = erste Zeile der Datei)")
             st.session_state.bank_start_row = st.number_input(
                 "Startzeile (1-basiert)", min_value=1, value=int(st.session_state.bank_start_row), step=1
             )
-
             df_src = st.session_state.bank_csv_df
             df_view = df_src.iloc[st.session_state.bank_start_row - 1 :].copy()
-            df_view.insert(0, "csv_row", df_view.index + 1)  # 1-based row numbers
+            df_view.insert(0, "csv_row", df_view.index + 1)  # original row numbers (1-based)
             st.session_state.bank_csv_view_df = df_view
 
             st.success(f"Verwende {len(df_view)} Datenzeilen ab Zeile {st.session_state.bank_start_row}.")
@@ -460,54 +402,48 @@ elif st.session_state.step == 2:
     if src_for_mapping is not None and not src_for_mapping.empty:
         st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
         cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
-        c1, c2 = st.columns(2)
-        # AFTER (add one more line; group it nicely)
-        st.session_state.bank_map["buchungsnummer"] = c1.selectbox("buchungsnummer", options=cols, index=0)
-        st.session_state.bank_map["datum"]          = c2.selectbox("datum", options=cols, index=0)
-        c5, _ = st.columns([2,1])
-        st.session_state.bank_map["beschreibung"]   = c5.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)  # <-- NEW
-        
-        c3, c4 = st.columns(2)
-        st.session_state.bank_map["betrag"]         = c3.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
-        st.session_state.bank_map["soll"]           = c4.selectbox("soll (Kontonummer oder account_id)", options=cols, index=0)
-        st.session_state.bank_map["haben"]          = st.selectbox("haben (Kontonummer oder account_id)", options=cols, index=0)
 
-        def pick(src, colname):
-            sel = st.session_state.bank_map.get(colname)
+        c1, c2 = st.columns(2)
+        st.session_state.bank_map["datum"]        = c1.selectbox("datum", options=cols, index=0)
+        st.session_state.bank_map["betrag"]       = c2.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
+        c3, _ = st.columns([2,1])
+        st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
+
+        def pick(src, key):
+            sel = st.session_state.bank_map.get(key)
             if sel and sel in src.columns:
                 return src[sel]
             return pd.Series([""] * len(src), index=src.index, dtype="string")
 
-        if st.button("Konvertieren → Vorschau-Gitter"):
+        def convert_to_grid():
             src = src_for_mapping
             df_new = pd.DataFrame({
-                "buchungsnummer": pick("buchungsnummer"),
-                "datum":          pick("datum").apply(_parse_date_to_iso),
-                "betrag":         pick("betrag").apply(_to_float),
-                "soll":           pick("soll").astype(str),
-                "haben":          pick("haben").astype(str),
-                "beschreibung":   pick("beschreibung").astype(str),   # <-- NEW
+                "csv_row":       src["csv_row"],  # keep for traceability
+                "buchungsnummer": "",             # leave blank (auto-ref possible later)
+                "datum":         pick(src, "datum").apply(_parse_date_to_iso),
+                "betrag":        pick(src, "betrag").apply(_to_float),
+                "soll":          "",              # auto-assign by bank+sign if empty
+                "haben":         "",
+                "beschreibung":  pick(src, "beschreibung").astype(str),
             })
             if (df_new["datum"] == "").all():
                 df_new["datum"] = dt_date.today().isoformat()
 
-            # Auto-assign bank account to soll/haben by sign (only if empty cells)
+            # Auto-assign bank account to soll/haben by sign (only if bank selected)
             if st.session_state.selected_bank_number:
                 pos_mask = df_new["betrag"].fillna(0) > 0
                 neg_mask = df_new["betrag"].fillna(0) < 0
                 df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
                 df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
 
-            # Coerce amount to numeric for editor
-            df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce")
+            # Normalize schema for the editor
+            st.session_state.bulk_df = ensure_schema(df_new)
 
-            st.session_state.bulk_df = df_new
-            st.success(f"Gitter erstellt: {len(df_new)} Zeilen.")
-
-    st.markdown("---")
-    disabled_next = st.session_state.bulk_df is None or st.session_state.bulk_df.empty
-    st.button("Weiter → 3) Kontrolle & Import", disabled=disabled_next,
-              on_click=lambda: st.session_state.update(step=3))
+        # Single button that converts AND advances
+        if st.button("Weiter → 3) Kontrolle & Import"):
+            convert_to_grid()
+            st.session_state.step = 3
+            st.experimental_rerun()
 
 # =========================
 # STEP 3 — KONTROLLE & IMPORT
@@ -527,13 +463,13 @@ elif st.session_state.step == 3:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "csv_row":        st.column_config.TextColumn("csv_row (aus CSV)", help="Ursprüngliche Zeilennummer."),
+                "csv_row":        st.column_config.TextColumn("csv_row (aus CSV)"),
                 "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr."),
                 "datum":          st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
                 "betrag":         st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
                 "soll":           st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
                 "haben":          st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
-                "beschreibung":   st.column_config.TextColumn("beschreibung"),  # <-- NEW
+                "beschreibung":   st.column_config.TextColumn("beschreibung"),
             }
         )
         colA, colB = st.columns(2)
@@ -541,13 +477,13 @@ elif st.session_state.step == 3:
         submitted  = colB.form_submit_button("Buchungen posten", type="primary")
 
     # Persist back
-    st.session_state.bulk_df = edited_df
+    st.session_state.bulk_df = ensure_schema(edited_df)
 
     if submitted:
-        if edited_df is None or edited_df.empty:
+        rows = st.session_state.bulk_df.fillna("")
+        if rows.empty:
             st.warning("Keine Zeilen im Gitter.")
         else:
-            rows = edited_df.fillna("")
             results = []
             for idx, row in rows.iterrows():
                 try:
@@ -564,34 +500,35 @@ elif st.session_state.step == 3:
                     else:
                         date_iso = _parse_date_to_iso(str(row.get("datum","")))
                     if not date_iso:
-                        raise ValueError(f"Ungültiges Datum in Zeile {idx+1}")
+                        raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
 
-                    # Amount: API expects positive value; side is by debit/credit
+                    # Amount: API expects positive; side by debit/credit
                     amount_raw = float(row.get("betrag") or 0)
                     if amount_raw == 0:
-                        raise ValueError(f"Betrag darf nicht 0 sein (Zeile {idx+1}).")
+                        raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
                     amount = abs(amount_raw)
 
                     debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
                     credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
                     if not debit_id or not credit_id:
-                        raise ValueError(f"Konto unbekannt (Zeile {idx+1}): bitte Kontonummern prüfen / Kontenplan importieren.")
+                        raise ValueError(f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren.")
 
                     ref_nr = str(row.get("buchungsnummer") or "").strip()
                     if auto_ref and not ref_nr:
                         rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
                         rr.raise_for_status()
                         ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
-                    desc = str(row.get("beschreibung") or "").strip()  # <-- NEW
+
+                    desc = str(row.get("beschreibung") or "").strip()
+
                     payload = {
-                        
                         "type": "manual_single_entry",
                         "date": date_iso,
                         "entries": [{
                             "debit_account_id": int(debit_id),
                             "credit_account_id": int(credit_id),
                             "amount": float(amount),
-                            "description": "",
+                            "description": desc,  # pass through
                             "currency_id": int(DEFAULT_CURRENCY_ID),
                             "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
                         }],
