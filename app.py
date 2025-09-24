@@ -518,36 +518,40 @@ elif st.session_state.step == 2:
                 return src_for_mapping[sel]
             return pd.Series([""] * len(src_for_mapping), index=src_for_mapping.index, dtype="string")
 
-        def convert_to_grid_and_advance():
-            src = src_for_mapping
+       def convert_to_grid_and_advance():
+        src = src_for_mapping
+    
+        df_new = pd.DataFrame({
+            "csv_row":        src["csv_row"],                        # keep for traceability (hidden in editor)
+            "buchungsnummer": "",                                    # left blank (auto-ref later)
+            "datum":          pick("datum").apply(_parse_date_to_iso),
+            "beschreibung":   pick("beschreibung").astype(str),      # rename to 'beschreibung' early
+            "betrag":         pick("betrag").apply(_to_float),
+            "soll":           "",                                    # auto-fill by bank/sign if set
+            "haben":          "",
+        })
+    
+        # Default date if parsing failed everywhere
+        if (df_new["datum"] == "").all():
+            df_new["datum"] = dt_date.today().isoformat()
+    
+        # Assign selected bank account to soll/haben by sign (only if empty in target)
+        if st.session_state.selected_bank_number:
+            pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
+            neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
+            df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
+            df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
+    
+        # Make amount absolute now (UI & API expect positive + side given by debit/credit)
+        df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce").abs()
+    
+        # Normalize full schema & types (keeps csv_row as Int64, rest strings/floats)
+        st.session_state.bulk_df = ensure_schema(df_new)
+    
+        # Advance to step 3
+        st.session_state.step = 3
+        st.rerun()
 
-            df_new = pd.DataFrame({
-                "csv_row":        src["csv_row"],                        # traceability
-                "buchungsnummer": "",                                    # left blank (auto-ref later)
-                "datum":          pick("datum").apply(_parse_date_to_iso),
-                "betrag":         pick("betrag").apply(_to_float),
-                "soll":           "",                                    # auto-fill by bank/sign if set
-                "haben":          "",
-                "beschreibung":   pick("beschreibung").astype(str),
-            })
-
-            # Default date if parsing failed everywhere
-            if (df_new["datum"] == "").all():
-                df_new["datum"] = dt_date.today().isoformat()
-
-            # Assign selected bank account to soll/haben by sign (only if empty in target)
-            if st.session_state.selected_bank_number:
-                pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
-                neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
-                df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
-                df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
-
-            # Normalize schema/types for the editor (prevents Streamlit type errors)
-            st.session_state.bulk_df = ensure_schema(df_new)
-
-            # Advance to step 3
-            st.session_state.step = 3
-            st.rerun()
 
         # Single button that converts AND advances
         st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
@@ -565,116 +569,139 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
+    # Only the 6 fields Bexio needs in the editor
+    EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
+    
     with st.form("bulk_entries_form", clear_on_submit=False):
-        edited_df = st.data_editor(
-            st.session_state.bulk_df,
+        # Pass only the visible columns to the editor
+        edited_view = st.data_editor(
+            st.session_state.bulk_df[EDIT_COLS],
             key="bulk_grid",
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
             column_config={
-                "csv_row":        st.column_config.NumberColumn("csv_row (aus CSV)", step=1, format="%d"),
-                "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr."),
-                "datum":          st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
-                "betrag":         st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
-                "soll":           st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
-                "haben":          st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
-                "beschreibung":   st.column_config.TextColumn("beschreibung"),
+                "buchungsnummer": st.column_config.TextColumn("number (auto if empty)"),
+                "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
+                "beschreibung":   st.column_config.TextColumn("label / description"),
+                "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
+                "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
+                "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
             }
         )
         colA, colB = st.columns(2)
         auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
         submitted  = colB.form_submit_button("Buchungen posten", type="primary")
+    
+    # Write edited values back into the full DF (csv_row stays intact and hidden)
+    st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
+    
+    # Ensure schema/dtypes again (keeps csv_row as Int64, betrag as float, others as str)
+    st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
-    # Persist back
-    st.session_state.bulk_df = ensure_schema(edited_df)
 
-    if submitted:
-        rows = st.session_state.bulk_df.fillna("")
-        if rows.empty:
-            st.warning("Keine Zeilen im Gitter.")
-        else:
-            results = []
-            for idx, row in rows.iterrows():
-                try:
-                    # Skip completely empty lines
-                    if (str(row.get("datum","")).strip() == "" and
-                        float(row.get("betrag",0) or 0) == 0 and
-                        str(row.get("soll","")).strip() == "" and
-                        str(row.get("haben","")).strip() == ""):
-                        continue
+   if submitted:
+    # Work directly on a copy; do NOT use .fillna("") on mixed dtypes (breaks Int64)
+    rows = st.session_state.bulk_df.copy()
 
-                    # Date parsing
-                    if isinstance(row.get("datum"), dt_date):
-                        date_iso = row["datum"].isoformat()
-                    else:
-                        date_iso = _parse_date_to_iso(str(row.get("datum","")))
-                    if not date_iso:
-                        raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
+    if rows.empty:
+        st.warning("Keine Zeilen im Gitter.")
+    else:
+        results = []
+        for idx, row in rows.iterrows():
+            try:
+                # Safe getters that handle <NA> / None
+                def _s(x):
+                    return "" if (x is None or (isinstance(x, float) and pd.isna(x)) or (pd.isna(x) if hasattr(pd, "isna") else False)) else str(x)
 
-                    # Amount: API expects positive; side by debit/credit
-                    amount_raw = float(row.get("betrag") or 0)
-                    if amount_raw == 0:
-                        raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
-                    amount = abs(amount_raw)
+                def _f(x):
+                    try:
+                        return float(x)
+                    except Exception:
+                        return 0.0
 
-                    debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
-                    credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
-                    if not debit_id or not credit_id:
-                        raise ValueError(f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren.")
+                # Skip completely empty lines
+                if (_s(row.get("datum")) == "" and
+                    _f(row.get("betrag")) == 0 and
+                    _s(row.get("soll")) == "" and
+                    _s(row.get("haben")) == ""):
+                    continue
 
-                    ref_nr = str(row.get("buchungsnummer") or "").strip()
-                    if auto_ref and not ref_nr:
-                        rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
-                        rr.raise_for_status()
-                        ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
+                # Date parsing (flexible)
+                date_val = row.get("datum")
+                if isinstance(date_val, dt_date):
+                    date_iso = date_val.isoformat()
+                else:
+                    date_iso = _parse_date_to_iso(_s(date_val))
+                if not date_iso:
+                    raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
 
-                    desc = str(row.get("beschreibung") or "").strip()
+                # Amount: already absolute from Step 2, but enforce again for safety
+                amount = abs(_f(row.get("betrag")))
+                if amount == 0:
+                    raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
 
-                    payload = {
-                        "type": "manual_single_entry",
-                        "date": date_iso,
-                        "entries": [{
-                            "debit_account_id": int(debit_id),
-                            "credit_account_id": int(credit_id),
-                            "amount": float(amount),
-                            "description": desc,  # pass through
-                            "currency_id": int(DEFAULT_CURRENCY_ID),
-                            "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                        }],
-                    }
-                    if ref_nr:
-                        payload["reference_nr"] = ref_nr
+                # Accounts
+                debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
+                credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
+                if not debit_id or not credit_id:
+                    raise ValueError(f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren.")
 
+                # Reference number
+                ref_nr = _s(row.get("buchungsnummer"))
+                if auto_ref and not ref_nr:
+                    rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
+                    rr.raise_for_status()
+                    ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
+
+                # Description
+                desc = _s(row.get("beschreibung"))
+
+                payload = {
+                    "type": "manual_single_entry",
+                    "date": date_iso,
+                    "entries": [{
+                        "debit_account_id": int(debit_id),
+                        "credit_account_id": int(credit_id),
+                        "amount": float(amount),
+                        "description": desc,
+                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                    }],
+                }
+                if ref_nr:
+                    payload["reference_nr"] = ref_nr
+
+                r = requests.post(
+                    MANUAL_ENTRIES_V3,
+                    headers={**_auth(), "Content-Type": "application/json"},
+                    json=payload, timeout=30
+                )
+                if r.status_code == 401:
+                    refresh_access_token()
                     r = requests.post(
                         MANUAL_ENTRIES_V3,
                         headers={**_auth(), "Content-Type": "application/json"},
                         json=payload, timeout=30
                     )
-                    if r.status_code == 401:
-                        refresh_access_token()
-                        r = requests.post(
-                            MANUAL_ENTRIES_V3,
-                            headers={**_auth(), "Content-Type": "application/json"},
-                            json=payload, timeout=30
-                        )
-                    if r.status_code == 429:
-                        results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "Rate limited (429)"})
-                        continue
+                if r.status_code == 429:
+                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "Rate limited (429)"})
+                    continue
 
-                    r.raise_for_status()
-                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
-                except requests.HTTPError as e:
-                    try:
-                        err_txt = e.response.text
-                    except Exception:
-                        err_txt = str(e)
-                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": f"HTTP {e.response.status_code}", "error": err_txt})
-                except Exception as e:
-                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "ERROR", "error": str(e)})
+                r.raise_for_status()
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
 
-            if not results:
-                st.info("Keine gültigen Zeilen zum Posten gefunden.")
-            else:
-                st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
-                st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+            except requests.HTTPError as e:
+                try:
+                    err_txt = e.response.text
+                except Exception:
+                    err_txt = str(e)
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": f"HTTP {e.response.status_code}", "error": err_txt})
+            except Exception as e:
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "ERROR", "error": str(e)})
+
+        if not results:
+            st.info("Keine gültigen Zeilen zum Posten gefunden.")
+        else:
+            st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
+            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
