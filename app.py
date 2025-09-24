@@ -214,6 +214,7 @@ bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
 col_enc1, col_enc2 = st.columns([2,1])
 encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=0)
 decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
+import io
 
 def _try_read_csv(uploaded_file):
     raw = uploaded_file.getvalue()
