@@ -1,6 +1,7 @@
 import os, time, base64
 import streamlit as st
 import requests
+import zipfile
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
@@ -215,27 +216,41 @@ encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=
 decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
 
 def _try_read_csv(uploaded_file):
-    # Read bytes once; try multiple encodings safely
     raw = uploaded_file.getvalue()
-    candidates = [encoding, "utf-8-sig", "cp1252", "latin-1", "utf-16"]
-    tried = []
-    for enc in candidates:
-        if enc in tried: 
-            continue
-        tried.append(enc)
-        try:
-            return pd.read_csv(
-                io.BytesIO(raw),
-                sep=None, engine="python",
-                encoding=enc,
-                decimal=decimal,
-                dtype=str,            # keep everything text first
-                keep_default_na=False
-            )
-        except Exception:
-            continue
-    raise ValueError(f"CSV konnte nicht gelesen werden (getestet: {', '.join(tried)})")
 
+    # If it's actually an Excel file (xlsx)
+    if raw[:4] == b"PK\x03\x04":
+        try:
+            df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
+            return df
+        except Exception as e:
+            raise ValueError(f"Excel-Datei konnte nicht gelesen werden: {e}")
+
+    # Try multiple encodings and delimiters
+    encodings  = [encoding, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
+    delimiters = [None, ";", ",", "\t", "|"]
+    errors = []
+
+    for enc in encodings:
+        for sep in delimiters:
+            try:
+                df = pd.read_csv(
+                    io.BytesIO(raw),
+                    sep=sep, engine="python",
+                    encoding=enc,
+                    decimal=decimal,
+                    dtype=str,
+                    keep_default_na=False,
+                )
+                # Heuristic: must have at least 1 column
+                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
+                    return df
+            except Exception as e:
+                errors.append(f"{enc}/{repr(sep)} → {e}")
+
+    raise ValueError("CSV konnte nicht gelesen werden. Versuche: "
+                     + "; ".join(errors[:4]) + (" …" if len(errors) > 4 else ""))
+    
 if bank_file is not None:
     try:
         st.session_state.bank_csv_df = _try_read_csv(bank_file)
@@ -301,8 +316,9 @@ if build_btn:
         sel = mp.get(colname)
         if sel and sel in src.columns:
             return src[sel]
-        # always return a Series of correct length
+        # Always return a Series (right length), not a scalar string
         return pd.Series([""] * len(src), index=src.index, dtype="string")
+
 
     df_new = pd.DataFrame({
         "buchungsnummer": pick("buchungsnummer"),
@@ -319,6 +335,19 @@ if build_btn:
     st.session_state.bulk_df = df_new
     st.success(f"Gitter befüllt: {len(df_new)} Zeilen. Du kannst jetzt editieren & posten.")
 
+# Ensure correct dtypes for the editor:
+if st.session_state.bulk_df is None:
+    st.session_state.bulk_df = pd.DataFrame(
+        {"buchungsnummer": [], "datum": [], "betrag": [], "soll": [], "haben": []}
+    )
+
+# Coerce betrag to float dtype; empty/invalid -> NaN (shown as blank)
+if "betrag" in st.session_state.bulk_df.columns:
+    st.session_state.bulk_df["betrag"] = pd.to_numeric(
+        st.session_state.bulk_df["betrag"], errors="coerce"
+    )
+
+
 # Editor im Formular (stabil, kein Input-Verlust)
 st.subheader("3) Kontrolle & Import")
 with st.form("bulk_entries_form", clear_on_submit=False):
@@ -331,13 +360,13 @@ with st.form("bulk_entries_form", clear_on_submit=False):
         use_container_width=True,
         hide_index=True,
         column_config={
-            "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr (wenn Checkbox aktiv)."),
-            # Use TextColumn to avoid dtype errors; we parse on submit anyway
+            "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr."),
             "datum": st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
             "betrag": st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
             "soll": st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
             "haben": st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
         }
+
 
     )
     colA, colB = st.columns(2)
@@ -349,24 +378,17 @@ st.session_state.bulk_df = edited_df
 
 # --- Kontonummer/id → account_id Auflösung ---
 def resolve_account_id_from_number_or_id(val):
-    """
-    Accept Kontonummer (e.g. "1023") OR account_id (int-like string "284").
-    Prefer the Kontonummer→ID mapping; if not found, treat as raw id.
-    """
     if val is None:
         return None
     key = str(val).strip()
     if key == "":
         return None
-    # 1) Prefer mapping by Kontonummer
-    if key in st.session_state.acct_map_by_number:
+    if key in st.session_state.acct_map_by_number:  # prefer Kontonummer
         return int(st.session_state.acct_map_by_number[key])
-    # 2) Otherwise accept it as a raw account_id
     try:
-        return int(key)
+        return int(key)  # treat as raw account_id
     except Exception:
         return None
-
 
 # --- POSTEN ---
 if submitted:
