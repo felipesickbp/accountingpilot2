@@ -181,3 +181,87 @@ div[data-testid="stDownloadButton"] a:hover {
   box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
   transform: translateY(-1px);
 }
+
+/* ===== Button contrast fixes (global) ===== */
+
+/* Define a primary alias so all rules stay consistent */
+:root{
+  --brand-primary: var(--brand-navy);
+  --brand-primary-80: #1F2E44; /* hover shade */
+}
+
+/* 1) Regular st.button */
+.stButton > button {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.55rem 1.05rem !important;
+  font-weight: 600 !important;
+}
+.stButton > button:hover {
+  background: var(--brand-primary-80) !important;
+  box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
+  transform: translateY(-1px);
+}
+.stButton > button:disabled {
+  opacity: .55 !important;
+}
+
+/* 2) Form submit button (st.form_submit_button) */
+div[data-testid="stFormSubmitButton"] > button,
+form [data-testid^="baseButton"] > button,
+div[data-testid^="baseButton-primary"] > button {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.55rem 1.05rem !important;
+  font-weight: 600 !important;
+}
+div[data-testid="stFormSubmitButton"] > button:hover,
+form [data-testid^="baseButton"] > button:hover,
+div[data-testid^="baseButton-primary"] > button:hover {
+  background: var(--brand-primary-80) !important;
+  box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
+  transform: translateY(-1px);
+}
+
+/* 3) Secondary/outline buttons (keep readable) */
+div[data-testid^="baseButton-secondary"] > button {
+  background: transparent !important;
+  color: var(--brand-primary) !important;
+  border: 1px solid var(--brand-primary) !important;
+  border-radius: 999px !important;
+  padding: 0.55rem 1.05rem !important;
+  font-weight: 600 !important;
+}
+div[data-testid^="baseButton-secondary"] > button:hover {
+  background: rgba(15,29,43,.06) !important;
+}
+
+/* 4) Download button (both <button> and <a> variants) */
+div[data-testid="stDownloadButton"] > button,
+div[data-testid="stDownloadButton"] a {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: none !important;
+  padding: 0.55rem 1.05rem !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  display: inline-block !important;
+}
+div[data-testid="stDownloadButton"] > button:hover,
+div[data-testid="stDownloadButton"] a:hover {
+  background: var(--brand-primary-80) !important;
+  box-shadow: 0 4px 14px rgba(15,29,43,0.18) !important;
+  transform: translateY(-1px);
+}
+
+/* 5) Toggle/checkbox pills — ensure readable label color on dark bg */
+[data-testid="stTickBar"] ~ label,
+[data-testid="stCheckbox"] label {
+  color: var(--brand-navy) !important;
+}
+
