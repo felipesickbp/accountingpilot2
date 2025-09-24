@@ -298,11 +298,11 @@ if build_btn:
     mp  = st.session_state.bank_map
 
     def pick(colname):
-    sel = mp.get(colname)
-    if sel and sel in src.columns:
-        return src[sel]
-    # always return a Series of correct length
-    return pd.Series([""] * len(src), index=src.index, dtype="string")
+        sel = mp.get(colname)
+        if sel and sel in src.columns:
+            return src[sel]
+        # always return a Series of correct length
+        return pd.Series([""] * len(src), index=src.index, dtype="string")
 
     df_new = pd.DataFrame({
         "buchungsnummer": pick("buchungsnummer"),
