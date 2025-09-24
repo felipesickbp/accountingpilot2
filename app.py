@@ -181,17 +181,33 @@ def _make_unique_columns(cols, prefix="col"):
     return out
 
 def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
+    """
+    Robust reader for CSV or Excel (xlsx disguised as csv).
+    - Ensures unique, non-empty column names
+    - Reserves 'csv_row' name (renames existing to 'csv_row_file')
+    - Tries multiple encodings and delimiters
+    - If header parsing fails, falls back to header=None and synthesizes column names
+    Returns a pandas DataFrame (never None) or raises ValueError.
+    """
     raw = uploaded_file.getvalue()
-    # Excel?
+
+    # Detect Excel by magic number
     if len(raw) >= 4 and raw[:4] == b"PK\x03\x04":
-        df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
+        try:
+            df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
+        except Exception as e:
+            raise ValueError(f"Excel-Datei konnte nicht gelesen werden: {e}")
+
         df.columns = _make_unique_columns(df.columns, prefix="col")
+        # Reserve 'csv_row'
         if "csv_row" in df.columns:
             df = df.rename(columns={"csv_row": "csv_row_file"})
         return df
+
+    # Try CSV with various encodings and delimiters
     encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
     delimiters = [None, ";", ",", "\t", "|"]
-    errs = []
+    errors = []
     for enc in encodings:
         for sep in delimiters:
             try:
