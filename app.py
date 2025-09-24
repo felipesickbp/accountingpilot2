@@ -93,43 +93,38 @@ def resolve_account_id_from_number_or_id(val):
     except Exception:
         return None
 
+def _make_unique_columns(cols, prefix="col"):
+    """
+    Return a list of unique, non-empty column names.
+    - Trims whitespace
+    - Replaces empty/unnamed with prefix_1, prefix_2, ...
+    - Deduplicates by adding suffixes: "Name", "Name__2", "Name__3", ...
+    """
+    out = []
+    seen = {}
+    for i, c in enumerate(cols, start=1):
+        name = str(c).strip()
+        if name == "" or name.lower().startswith("unnamed:"):
+            name = f"{prefix}_{i}"
+        base = name
+        if base in seen:
+            seen[base] += 1
+            name = f"{base}__{seen[base]}"
+        else:
+            seen[base] = 1
+        out.append(name)
+    return out
+
 def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
-    """Robust CSV reader; also supports xlsx disguised as csv."""
+    """Robust CSV reader; also supports xlsx disguised as csv. Ensures unique headers and reserves 'csv_row'."""
     raw = uploaded_file.getvalue()
-    # Excel magic number
+
+    # Excel?
     if raw[:4] == b"PK\x03\x04":
         df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
-        return df
+        df.columns = _make_unique_columns(df.columns, prefix="col")
+        # If file already has a column named 'csv_row',_
 
-    encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
-    delimiters = [None, ";", ",", "\t", "|"]
-    errors = []
-    for enc in encodings:
-        for sep in delimiters:
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(raw),
-                    sep=sep, engine="python",
-                    encoding=enc,
-                    decimal=decimal,
-                    dtype=str,
-                    keep_default_na=False,
-                )
-                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-                    # Clean weird column headers like "Unnamed: 2"
-                    nice_cols = []
-                    for c in df.columns:
-                        sc = str(c).strip()
-                        if sc.lower().startswith("unnamed:"):
-                            nice_cols.append("")
-                        else:
-                            nice_cols.append(sc)
-                    df.columns = nice_cols
-                    return df
-            except Exception as e:
-                errors.append(f"{enc}/{repr(sep)} → {e}")
-    raise ValueError("CSV konnte nicht gelesen werden. Versuche: "
-                     + "; ".join(errors[:4]) + (" …" if len(errors) > 4 else ""))
 
 # =========================
 # SESSION DEFAULTS
