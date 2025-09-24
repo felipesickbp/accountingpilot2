@@ -1,11 +1,11 @@
 import os, time, base64
+import io
+import pandas as pd
 import streamlit as st
 import requests
-import zipfile
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
-import pandas as pd
 
 load_dotenv(override=True)
 
@@ -47,6 +47,20 @@ if "acct_map_by_number" not in st.session_state:
     st.session_state.acct_map_by_number = {}
 if "acct_df" not in st.session_state:
     st.session_state.acct_df = None
+if "bank_csv_df" not in st.session_state:
+    st.session_state.bank_csv_df = None
+if "bank_csv_view_df" not in st.session_state:
+    st.session_state.bank_csv_view_df = None
+if "bank_map" not in st.session_state:
+    st.session_state.bank_map = {
+        "buchungsnummer": None,
+        "datum": None,
+        "betrag": None,
+        "soll": None,
+        "haben": None,
+    }
+if "bank_start_row" not in st.session_state:
+    st.session_state.bank_start_row = 1
 
 # Default currency
 DEFAULT_CURRENCY_ID = 1
@@ -153,7 +167,7 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
         refresh_access_token()
 
 # ---- v2 Kontenplan import (read-only, builds number -> id mapping) ----
-st.subheader("Kontenplan aus bexio importieren (READ via v2)")
+st.subheader("1) Kontenplan aus bexio importieren (READ via v2)")
 st.caption("Nur zum Einlesen der Mapping-Tabelle (account_no → id). Postings bleiben über v3.")
 
 col_i1, col_i2 = st.columns([1,1])
@@ -193,28 +207,37 @@ if do_import:
     except Exception as e:
         st.error(f"Import fehlgeschlagen: {e}")
 
+# ---- Bankkonto für Auto-Zuordnung (aus Kontenplan: type == 1) ----
+st.subheader("Bankkonto wählen (optional, für Auto-Zuordnung in soll/haben)")
+selected_bank_number = None
+if st.session_state.acct_df is not None and not st.session_state.acct_df.empty:
+    banks_df = st.session_state.acct_df.copy()
+    try:
+        banks_df["type"] = pd.to_numeric(banks_df["type"], errors="coerce")
+    except Exception:
+        pass
+    banks_df = banks_df[(banks_df["type"] == 1) & (banks_df["active"] == True)]
+    if not banks_df.empty:
+        opts = [f"{str(r['number']).strip()} · {r['name']} (id {int(r['id'])})" for _, r in banks_df.iterrows()]
+        choice = st.selectbox("Bankkonto (optional)", ["<keins>"] + opts, index=0)
+        if choice != "<keins>":
+            selected_bank_number = choice.split(" · ", 1)[0].strip()
+            st.caption(f"Gewählt: Kontonummer **{selected_bank_number}** – wird in Schritt 3 je nach Vorzeichen in *soll/haben* gesetzt.")
+    else:
+        st.info("Keine Bankkonten (type==1) im Kontenplan gefunden.")
+else:
+    st.info("Kontenplan noch nicht importiert.")
+
 # ======================================================
 # STEP 2 — Bankdatei importieren (CSV -> Vorschau)
 # ======================================================
 st.header("2) Bankdatei importieren (CSV)")
-st.caption("Lade eine CSV hoch. Wähle die Spalten, mit denen wir das Bexio-Gitter füllen.")
-
-if "bank_csv_df" not in st.session_state:
-    st.session_state.bank_csv_df = None
-if "bank_map" not in st.session_state:
-    st.session_state.bank_map = {
-        "buchungsnummer": None,
-        "datum": None,
-        "betrag": None,
-        "soll": None,   # Kontonummer (oder id)
-        "haben": None,  # Kontonummer (oder id)
-    }
+st.caption("Lade eine CSV (oder Excel mit .csv-Endung). Wähle die Spalten zum Füllen des Gitters.")
 
 bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
 col_enc1, col_enc2 = st.columns([2,1])
 encoding = col_enc1.selectbox("Encoding", ["utf-8", "latin-1", "utf-16"], index=0)
 decimal  = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
-import io
 
 def _try_read_csv(uploaded_file):
     raw = uploaded_file.getvalue()
@@ -243,7 +266,6 @@ def _try_read_csv(uploaded_file):
                     dtype=str,
                     keep_default_na=False,
                 )
-                # Heuristic: must have at least 1 column
                 if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
                     return df
             except Exception as e:
@@ -251,24 +273,39 @@ def _try_read_csv(uploaded_file):
 
     raise ValueError("CSV konnte nicht gelesen werden. Versuche: "
                      + "; ".join(errors[:4]) + (" …" if len(errors) > 4 else ""))
-    
+
 if bank_file is not None:
     try:
         st.session_state.bank_csv_df = _try_read_csv(bank_file)
-        st.success(f"CSV geladen: {st.session_state.bank_csv_df.shape[0]} Zeilen, {st.session_state.bank_csv_df.shape[1]} Spalten")
-        st.dataframe(st.session_state.bank_csv_df.head(50), use_container_width=True, hide_index=True)
+
+        # Ask from which 1-based row the data starts
+        st.markdown("**Ab welcher Zeile beginnen die Daten?** (1 = erste Zeile der Datei)")
+        st.session_state.bank_start_row = st.number_input(
+            "Startzeile (1-basiert)", min_value=1, value=int(st.session_state.bank_start_row), step=1
+        )
+
+        # Build a 'view' with only data rows and preserve original row numbers (1-based)
+        df_src = st.session_state.bank_csv_df
+        df_view = df_src.iloc[st.session_state.bank_start_row - 1 :].copy()
+        df_view.insert(0, "csv_row", df_view.index + 1)  # original row numbers from the file
+
+        st.session_state.bank_csv_view_df = df_view
+
+        st.success(f"Verwende {len(df_view)} Datenzeilen ab Zeile {st.session_state.bank_start_row}.")
+        st.dataframe(df_view.head(50), use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"CSV konnte nicht gelesen werden: {e}")
 
-# Mapping-UI, falls CSV vorhanden
-if st.session_state.bank_csv_df is not None and len(st.session_state.bank_csv_df.columns) > 0:
+# Mapping-UI, falls CSV vorhanden (use the view)
+src_for_mapping = st.session_state.get("bank_csv_view_df", None)
+if src_for_mapping is not None and len(src_for_mapping.columns) > 0:
     st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
-    cols = ["<keine>"] + list(st.session_state.bank_csv_df.columns)
+    cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
     c1, c2 = st.columns(2)
     st.session_state.bank_map["buchungsnummer"] = c1.selectbox("buchungsnummer", options=cols, index=0)
     st.session_state.bank_map["datum"]          = c2.selectbox("datum", options=cols, index=0)
     c3, c4 = st.columns(2)
-    st.session_state.bank_map["betrag"]         = c3.selectbox("betrag (positiv = Debit / negativ = Kredit, oder umgekehrt)", options=cols, index=0)
+    st.session_state.bank_map["betrag"]         = c3.selectbox("betrag (positiv = Debit / negativ = Kredit)", options=cols, index=0)
     st.session_state.bank_map["soll"]           = c4.selectbox("soll (Kontonummer oder account_id)", options=cols, index=0)
     st.session_state.bank_map["haben"]          = st.selectbox("haben (Kontonummer oder account_id)", options=cols, index=0)
 
@@ -285,7 +322,6 @@ def _parse_date_to_iso(x: str) -> str:
     if not s:
         return ""
     try:
-        # Cleveres Parsen, erlaubt 01.02.2025, 1/2/25, etc.
         d = pd.to_datetime(s, dayfirst=True, errors="coerce")
         if pd.isna(d):
             d = pd.to_datetime(s, dayfirst=False, errors="coerce")
@@ -296,10 +332,9 @@ def _parse_date_to_iso(x: str) -> str:
         return ""
 
 def _to_float(x: str) -> float:
-    if x is None: 
+    if x is None:
         return 0.0
     s = str(x).strip().replace("’","").replace("'","")
-    # Versuche beide Dezimal-Formate
     try:
         return float(s.replace(" ", "").replace(",", "."))  # 1 234,56 -> 1234.56
     except Exception:
@@ -310,36 +345,47 @@ def _to_float(x: str) -> float:
 
 # Create/edit bulk_df from mapping
 if build_btn:
-    src = st.session_state.bank_csv_df
-    mp  = st.session_state.bank_map
+    src = st.session_state.get("bank_csv_view_df", None)
+    if src is None or src.empty:
+        st.warning("Keine Datenzeilen vorhanden. Prüfe CSV und Startzeile.")
+    else:
+        mp  = st.session_state.bank_map
 
-    def pick(colname):
-        sel = mp.get(colname)
-        if sel and sel in src.columns:
-            return src[sel]
-        # Always return a Series (right length), not a scalar string
-        return pd.Series([""] * len(src), index=src.index, dtype="string")
+        def pick(colname):
+            sel = mp.get(colname)
+            if sel and sel in src.columns:
+                return src[sel]
+            # Always return a Series (right length), not a scalar string
+            return pd.Series([""] * len(src), index=src.index, dtype="string")
 
+        df_new = pd.DataFrame({
+            "csv_row":        src["csv_row"],
+            "buchungsnummer": pick("buchungsnummer"),
+            "datum":          pick("datum").apply(_parse_date_to_iso),
+            "betrag":         pick("betrag").apply(_to_float),
+            "soll":           pick("soll").astype(str),
+            "haben":          pick("haben").astype(str),
+        })
 
-    df_new = pd.DataFrame({
-        "buchungsnummer": pick("buchungsnummer"),
-        "datum":          pick("datum").apply(_parse_date_to_iso),
-        "betrag":         pick("betrag").apply(_to_float),
-        "soll":           pick("soll").astype(str),
-        "haben":          pick("haben").astype(str),
-    })
+        # Default date if entirely empty
+        if (df_new["datum"] == "").all():
+            df_new["datum"] = dt_date.today().isoformat()
 
-    # Fallbacks/Defaults
-    if "datum" in df_new and (df_new["datum"] == "").all():
-        df_new["datum"] = dt_date.today().isoformat()
+        # ------- Auto-assign bank account to soll/haben by sign (if chosen) -------
+        if selected_bank_number:
+            pos_mask = df_new["betrag"].fillna(0) > 0
+            neg_mask = df_new["betrag"].fillna(0) < 0
+            # Only fill empty cells so user choices are preserved
+            df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = selected_bank_number
+            df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = selected_bank_number
 
-    st.session_state.bulk_df = df_new
-    st.success(f"Gitter befüllt: {len(df_new)} Zeilen. Du kannst jetzt editieren & posten.")
+        st.session_state.bulk_df = df_new
+        st.success(f"Gitter befüllt: {len(df_new)} Zeilen. Du kannst jetzt editieren & posten.")
 
 # Ensure correct dtypes for the editor:
 if st.session_state.bulk_df is None:
     st.session_state.bulk_df = pd.DataFrame(
-        {"buchungsnummer": [], "datum": [], "betrag": [], "soll": [], "haben": []}
+        {"csv_row": [], "buchungsnummer": [], "datum": [], "betrag": [], "soll": [], "haben": []}
     )
 
 # Coerce betrag to float dtype; empty/invalid -> NaN (shown as blank)
@@ -348,27 +394,25 @@ if "betrag" in st.session_state.bulk_df.columns:
         st.session_state.bulk_df["betrag"], errors="coerce"
     )
 
-
 # Editor im Formular (stabil, kein Input-Verlust)
 st.subheader("3) Kontrolle & Import")
 with st.form("bulk_entries_form", clear_on_submit=False):
     edited_df = st.data_editor(
         st.session_state.bulk_df if st.session_state.bulk_df is not None else pd.DataFrame(
-            {"buchungsnummer": [], "datum": [], "betrag": [], "soll": [], "haben": []}
+            {"csv_row": [], "buchungsnummer": [], "datum": [], "betrag": [], "soll": [], "haben": []}
         ),
         key="bulk_grid",
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
+            "csv_row":        st.column_config.TextColumn("csv_row (aus CSV)", help="Ursprüngliche Zeilennummer der CSV."),
             "buchungsnummer": st.column_config.TextColumn("buchungsnummer", help="Optional; leer = auto Ref-Nr."),
-            "datum": st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
-            "betrag": st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
-            "soll": st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
-            "haben": st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
+            "datum":          st.column_config.TextColumn("datum (YYYY-MM-DD oder frei; wird geparst)"),
+            "betrag":         st.column_config.NumberColumn("betrag", min_value=0.0, step=0.05, format="%.2f"),
+            "soll":           st.column_config.TextColumn("soll (Kontonummer oder account_id)"),
+            "haben":          st.column_config.TextColumn("haben (Kontonummer oder account_id)"),
         }
-
-
     )
     colA, colB = st.columns(2)
     auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
@@ -414,9 +458,10 @@ if submitted:
                 if not date_iso:
                     raise ValueError(f"Ungültiges Datum in Zeile {idx+1}")
 
-                amount = float(row.get("betrag") or 0)
-                if amount <= 0:
-                    raise ValueError(f"Betrag muss > 0 sein (Zeile {idx+1}).")
+                amount_raw = float(row.get("betrag") or 0)
+                if amount_raw == 0:
+                    raise ValueError(f"Betrag darf nicht 0 sein (Zeile {idx+1}).")
+                amount = abs(amount_raw)  # API expects positive; side set by debit/credit
 
                 debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
                 credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
@@ -457,22 +502,23 @@ if submitted:
                         json=payload, timeout=30
                     )
                 if r.status_code == 429:
-                    results.append({"row": idx + 1, "status": "Rate limited (429)"})
+                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "Rate limited (429)"})
                     continue
 
                 r.raise_for_status()
-                results.append({"row": idx + 1, "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "OK", "id": r.json().get("id"), "reference_nr": ref_nr})
             except requests.HTTPError as e:
                 try:
                     err_txt = e.response.text
                 except Exception:
                     err_txt = str(e)
-                results.append({"row": idx + 1, "status": f"HTTP {e.response.status_code}", "error": err_txt})
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": f"HTTP {e.response.status_code}", "error": err_txt})
             except Exception as e:
-                results.append({"row": idx + 1, "status": "ERROR", "error": str(e)})
+                results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "ERROR", "error": str(e)})
 
         if not results:
             st.info("Keine gültigen Zeilen zum Posten gefunden.")
         else:
             st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
             st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
