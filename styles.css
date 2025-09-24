@@ -84,45 +84,97 @@ div[data-testid="stDownloadButton"] a{
 div[data-testid="stDownloadButton"] > button:hover,
 div[data-testid="stDownloadButton"] a:hover{ background:var(--primary-hover)!important; box-shadow:0 4px 14px rgba(0,0,0,.15)!important; transform:translateY(-1px); }
 
-/* === Extra spacing under title === */
-h1 { 
-  margin-bottom: 2rem !important;  /* more room before the nav buttons */
+/* === 1) More space under the page title === */
+h1 { margin-bottom: 28px !important; }
+
+/* === 2) Step navigation as a flow with arrows BETWEEN buttons === */
+/* Target the first horizontal button row (Kontenplan / Bankdatei / Kontrolle & Import) */
+[data-testid="stHorizontalBlock"]:first-of-type{
+  display: flex;
+  align-items: center;
+  gap: 34px;                     /* space BETWEEN the step columns */
 }
 
-/* === Nav buttons: layout & arrows to show flow === */
-/* Target the FIRST horizontal button row (your Kontenplan/Bankdatei/Kontrolle & Import) */
+/* Make step buttons look like pills (outline) */
 [data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
-  margin-right: 18px;          /* extra breathing room between buttons */
-  position: relative;
-  padding-right: 1.75rem !important;  /* room for arrow inside button */
+  background: #fff !important;
+  color: #0F1D2B !important;
+  border: 1px solid #CBD5E1 !important;
+  border-radius: 999px !important;
+  padding: 10px 16px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 0 rgba(15,29,43,0.04);
+}
+[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover{
+  border-color: #94A3B8 !important;
+  box-shadow: 0 3px 10px rgba(2,6,23,0.08);
 }
 
-/* Add arrow (›) inside the first two buttons to indicate flow */
-[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(1) .stButton > button::after,
-[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(2) .stButton > button::after{
-  content: "›";
+/* Draw compact arrows BETWEEN the step columns (not inside the buttons) */
+[data-testid="stHorizontalBlock"]:first-of-type > div{
+  position: relative;
+}
+[data-testid="stHorizontalBlock"]:first-of-type > div:not(:last-child)::after{
+  content: "➜";
   position: absolute;
-  right: 10px;
+  right: -22px;
   top: 50%;
   transform: translateY(-50%);
+  color: #94A3B8;
+  font-size: 18px;
   font-weight: 700;
-  opacity: 0.7;
+  pointer-events: none;
 }
 
-/* Optional: soften the reset button (4th) so it doesn't look like part of the flow */
+/* So the reset button (4th) doesn’t look like part of the flow */
 [data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4) .stButton > button{
-  border-color: var(--brand-border) !important;
+  border-color: #E5E7EB !important;
+  color: #0F1D2B !important;
 }
 
-/* === Increase contrast on the “Buchungen posten” submit button === */
-/* This selector targets st.form_submit_button specifically */
-div[data-testid="stFormSubmitButton"] > button{
-  background: #0B5ED7 !important;           /* higher-contrast blue */
+/* === 3) Modern, high-contrast primary buttons (CTAs) === */
+/* Applies to: st.form_submit_button (“Buchungen posten”) and baseButton primary (“Weiter …”) */
+div[data-testid="stFormSubmitButton"] > button,
+[data-testid^="baseButton-primary"] > button{
+  background: linear-gradient(180deg, #2563EB 0%, #1E40AF 100%) !important; /* vivid blue */
   color: #FFFFFF !important;
-  border: 1px solid #083d8c !important;
+  border: 1px solid #1E3A8A !important;
+  border-radius: 12px !important;
+  padding: 12px 18px !important;
   font-weight: 700 !important;
+  letter-spacing: .2px;
+  box-shadow: 0 8px 22px rgba(37,99,235,0.25) !important;
+  transition: transform .06s ease, box-shadow .2s ease, filter .15s ease;
 }
-div[data-t]()
+div[data-testid="stFormSubmitButton"] > button:hover,
+[data-testid^="baseButton-primary"] > button:hover{
+  filter: brightness(1.06) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(37,99,235,0.32) !important;
+}
+div[data-testid="stFormSubmitButton"] > button:disabled,
+[data-testid^="baseButton-primary"] > button:disabled{
+  opacity: .55 !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
 
+/* Optional: keep secondary/outline buttons readable everywhere */
+[data-testid^="baseButton-secondary"] > button{
+  background: #fff !important;
+  color: #0F4C81 !important;
+  border: 1px solid #0F4C81 !important;
+  border-radius: 999px !important;
+  padding: 10px 16px !important;
+  font-weight: 600 !important;
+}
+[data-testid^="baseButton-secondary"] > button:hover{
+  background: rgba(15,76,129,.06) !important;
+}
+
+/* Slightly larger gap before the main content block under the nav */
+hr + div, [data-testid="stAppViewContainer"] > .main > div:first-child{
+  margin-top: 6px; /* subtle extra spacing after the nav row */
+}
 
 
