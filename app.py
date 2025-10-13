@@ -368,9 +368,12 @@ def login_link():
     st.markdown(f"[Sign in with bexio]({url})")
 
 def handle_callback():
-    code = st.query_params.get("code")
+    # In recent Streamlit versions, st.query_params acts like a dict.
+    qp = st.query_params
+    code = qp.get("code")
     if not code:
         return
+
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -378,9 +381,51 @@ def handle_callback():
         "client_id": BEXIO_CLIENT_ID,
         "client_secret": BEXIO_CLIENT_SECRET,
     }
-    r = requests.post(TOKEN_URL, data=data, timeout=30)
-    r.raise_for_status()
-    save_tokens(r.json())
+
+    try:
+        r = requests.post(TOKEN_URL, data=data, timeout=30)
+    except requests.RequestException as e:
+        st.error(f"Token request failed to send: {e}")
+        # Clear the URL so we don’t loop on every rerun
+        st.query_params.clear()
+        st.stop()
+
+    # If Bexio rejects the request, show the real error body
+    if r.status_code >= 400:
+        # Try to show JSON; else show text
+        try:
+            body = r.json()
+        except Exception:
+            body = r.text
+
+        st.error(
+            f"Token exchange failed ({r.status_code}).\n\n"
+            f"Response:\n{body}"
+        )
+
+        # Helpful hints (most common causes)
+        with st.expander("Troubleshooting tips", expanded=True):
+            st.markdown(
+                "- **Redirect URI mismatch**: `BEXIO_REDIRECT_URI` must match **exactly** what’s configured in Bexio (scheme, host, path).\n"
+                "- **Code already used or expired**: Try clicking *Sign in with bexio* again.\n"
+                "- **Client credentials**: Ensure `BEXIO_CLIENT_ID` / `BEXIO_CLIENT_SECRET` are correct for this app.\n"
+                "- **Wrong realm / token URL**: Double-check `TOKEN_URL`.\n"
+                "- **Scope issues**: The requested `SCOPES` must be allowed for your app."
+            )
+
+        # Clear query params so we don’t keep failing on rerun
+        st.query_params.clear()
+        st.stop()
+
+    # Success
+    try:
+        save_tokens(r.json())
+    except Exception as e:
+        st.error(f"Could not parse token response: {e}")
+        st.query_params.clear()
+        st.stop()
+
+    # Clean URL bar
     st.query_params.clear()
 
 def _auth():
