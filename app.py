@@ -797,7 +797,7 @@ elif st.session_state.step == 3:
                             rr.raise_for_status()
                             ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                                                desc   = _s(row.get("beschreibung"))
+                        desc   = _s(row.get("beschreibung"))
                         code   = _s(row.get("mwst_code")).upper()
                         vat_ac = resolve_account_id_from_number_or_id(row.get("mwst_konto"))
                         vat_rate = _parse_vat_rate(code)
