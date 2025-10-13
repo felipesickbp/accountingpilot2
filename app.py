@@ -746,7 +746,7 @@ elif st.session_state.step == 3:
                 st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
                 st.rerun()
 
-    # --- Editable grid (only Bexio-relevant columns) ---
+    # --- Editable grid (Bexio-relevante Spalten inkl. MWST) ---
     EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben", "mwst_code", "mwst_konto"]
 
     with st.form("bulk_entries_form", clear_on_submit=False):
@@ -763,11 +763,10 @@ elif st.session_state.step == 3:
                 "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
                 "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
                 "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-                "mwst_code":      st.column_config.TextColumn("MWST code (e.g., UN81 or 8.1%)"),
-                "mwst_konto":     st.column_config.TextColumn("MWST Konto (base; e.g., 3401 or 6xxx)"),
+                "mwst_code":      st.column_config.TextColumn("MWST code (e.g., UN81 / VM81 / VB81)"),
+                "mwst_konto":     st.column_config.TextColumn("MWST Konto (optional; usually 3xxx/6xxx)"),
             }
         )
-
         colA, colB = st.columns(2)
         auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
         submitted  = colB.form_submit_button("Buchungen posten", type="primary")
@@ -780,7 +779,47 @@ elif st.session_state.step == 3:
     colC, colD = st.columns(2)
     batch_size = int(colC.number_input("Batch-Grösse", min_value=1, max_value=200, value=50, step=1))
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
-    # --------------------------------------
+    # ---------------------------------------
+
+    # --- minimal VAT helpers (kept local to avoid "bloat") ---
+    # maps your preferred VAT codes to their VAT-ledger accounts
+    VAT_CODE_TO_LEDGER = {
+        "VM81": "1170",  # input VAT
+        "UN81": "2200",  # output VAT
+        "VB81": "1171",  # input VAT (alt.)
+    }
+
+    def _ensure_tax_code_map():
+        """Fetch tax list once → build code→id map in session. Tries common keys."""
+        if "tax_code_to_id" in st.session_state and st.session_state.tax_code_to_id:
+            return
+        try:
+            url = f"{API_V3}/accounting/taxes"
+            r = requests.get(url, headers=_auth(), timeout=30)
+            if r.status_code == 401:
+                refresh_access_token()
+                r = requests.get(url, headers=_auth(), timeout=30)
+            r.raise_for_status()
+            items = r.json() if isinstance(r.json(), list) else []
+            mp = {}
+            for t in items:
+                # common shapes: {"id":..., "code":"UN81", "name":"...", "rate":8.1}
+                code = str(t.get("code") or t.get("abbreviation") or "").strip().upper()
+                if not code:
+                    # last resort: try to pull a "UN81" like token from name
+                    name = str(t.get("name") or "").upper()
+                    import re
+                    m = re.search(r"\b[UV][A-Z]?\d{2}\b", name)
+                    code = m.group(0) if m else ""
+                if code and "id" in t:
+                    mp[code] = int(t["id"])
+            st.session_state.tax_code_to_id = mp
+        except Exception as e:
+            st.session_state.tax_code_to_id = {}
+
+    def _tax_id_from_code(code_str: str) -> int | None:
+        _ensure_tax_code_map()
+        return st.session_state.tax_code_to_id.get(code_str.upper())
 
     if submitted:
         rows = st.session_state.bulk_df.copy()
@@ -841,145 +880,68 @@ elif st.session_state.step == 3:
                             rr.raise_for_status()
                             ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                        # ---------- VAT-aware posting (single-entry requests only) ----------
                         desc = _s(row.get("beschreibung"))
-                        code = _s(row.get("mwst_code")).upper()
-                        vat_ac = resolve_account_id_from_number_or_id(row.get("mwst_konto"))
-                        vat_rate = _parse_vat_rate(code)
-                        use_vat = bool(vat_ac and (vat_rate is not None) and vat_rate > 0)
+                        code_raw = _s(row.get("mwst_code")).upper().strip()
+                        base_mwst_konto = _s(row.get("mwst_konto")).strip()
 
-                        # We will build one or more single-entry payloads,
-                        # because "manual_single_entry" only allows ONE entry per request.
-                        payloads = []
+                        # --- VAT: resolve tax_id + VAT ledger from your mapping ---
+                        tax_id = None
+                        tax_account_id = None
+                        if code_raw:
+                            tax_id = _tax_id_from_code(code_raw)
+                            # prefer your explicit map (VM81/UN81/VB81), else fall back to the row's mwst_konto
+                            mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or base_mwst_konto or ""
+                            if mapped_ledger:
+                                tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
 
-                        if use_vat:
-                            # Decide sale vs purchase by comparing mwst_konto with the row's accounts
-                            is_sale = (int(vat_ac) == int(credit_id))    # revenue base on credit side
-                            is_purchase = (int(vat_ac) == int(debit_id)) # expense base on debit side
-                            if not (is_sale or is_purchase):
-                                is_sale = True  # default to sale if ambiguous
+                            if not tax_id:
+                                raise ValueError(f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
+                                                 f"Bitte in bexio MWST-Sätze prüfen (sichtbar/aktiv).")
+                            if not tax_account_id:
+                                raise ValueError(f"MWST-Konto für Code '{code_raw}' konnte nicht aufgelöst werden "
+                                                 f"(erwartet z. B. {VAT_CODE_TO_LEDGER.get(code_raw,'<Konto>')}).")
 
-                            # Resolve VAT contra accounts (input vs output)
-                            vat_in_id  = resolve_account_id_from_number_or_id(DEFAULT_VAT_INPUT_ACCOUNT_NO)
-                            vat_out_id = resolve_account_id_from_number_or_id(DEFAULT_VAT_OUTPUT_ACCOUNT_NO)
-                            if is_purchase and not vat_in_id:
-                                raise ValueError("Input VAT account (DEFAULT_VAT_INPUT_ACCOUNT_NO) could not be resolved.")
-                            if is_sale and not vat_out_id:
-                                raise ValueError("Output VAT account (DEFAULT_VAT_OUTPUT_ACCOUNT_NO) could not be resolved.")
+                        # ----------------- build ONE single-entry payload -----------------
+                        entry = {
+                            "debit_account_id": int(debit_id),
+                            "credit_account_id": int(credit_id),
+                            "amount": float(amount),
+                            "description": desc,
+                            "currency_id": int(DEFAULT_CURRENCY_ID),
+                            "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                        }
+                        # attach VAT to the SINGLE line (links postings in bexio)
+                        if tax_id and tax_account_id:
+                            entry["tax_id"] = int(tax_id)
+                            entry["tax_account_id"] = int(tax_account_id)
 
-                            # Split gross → net + vat
-                            net = round(amount / (1.0 + vat_rate), 2)
-                            vat = round(amount - net, 2)
+                        payload = {
+                            "type": "manual_single_entry",
+                            "date": date_iso,
+                            "entries": [entry],  # IMPORTANT: exactly one entry
+                        }
+                        if ref_nr:
+                            payload["reference_nr"] = ref_nr
+                        # -------------------------------------------------------------------
 
-                            if is_sale:
-                                # 1) Dr Bank (net)  vs Cr Revenue (net)
-                                p1 = {
-                                    "type": "manual_single_entry",
-                                    "date": date_iso,
-                                    "entries": [{
-                                        "debit_account_id": int(debit_id),
-                                        "credit_account_id": int(vat_ac),
-                                        "amount": float(net),
-                                        "description": desc,
-                                        "currency_id": int(DEFAULT_CURRENCY_ID),
-                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    }],
-                                }
-                                # 2) Dr Bank (VAT) vs Cr Output VAT (VAT)
-                                p2 = {
-                                    "type": "manual_single_entry",
-                                    "date": date_iso,
-                                    "entries": [{
-                                        "debit_account_id": int(debit_id),
-                                        "credit_account_id": int(vat_out_id),
-                                        "amount": float(vat),
-                                        "description": desc,
-                                        "currency_id": int(DEFAULT_CURRENCY_ID),
-                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    }],
-                                }
-                                if ref_nr: 
-                                    p1["reference_nr"] = ref_nr
-                                    p2["reference_nr"] = ref_nr
-                                payloads.extend([p1, p2])
-                            else:
-                                # 1) Dr Expense (net) vs Cr Bank/Creditor (net)
-                                p1 = {
-                                    "type": "manual_single_entry",
-                                    "date": date_iso,
-                                    "entries": [{
-                                        "debit_account_id": int(vat_ac),
-                                        "credit_account_id": int(credit_id),
-                                        "amount": float(net),
-                                        "description": desc,
-                                        "currency_id": int(DEFAULT_CURRENCY_ID),
-                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    }],
-                                }
-                                # 2) Dr Input VAT (VAT) vs Cr Bank/Creditor (VAT)
-                                p2 = {
-                                    "type": "manual_single_entry",
-                                    "date": date_iso,
-                                    "entries": [{
-                                        "debit_account_id": int(vat_in_id),
-                                        "credit_account_id": int(credit_id),
-                                        "amount": float(vat),
-                                        "description": desc,
-                                        "currency_id": int(DEFAULT_CURRENCY_ID),
-                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    }],
-                                }
-                                if ref_nr: 
-                                    p1["reference_nr"] = ref_nr
-                                    p2["reference_nr"] = ref_nr
-                                payloads.extend([p1, p2])
-                        else:
-                            # No VAT → original single-leg entry
-                            p = {
-                                "type": "manual_single_entry",
-                                "date": date_iso,
-                                "entries": [{
-                                    "debit_account_id": int(debit_id),
-                                    "credit_account_id": int(credit_id),
-                                    "amount": float(amount),
-                                    "description": desc,
-                                    "currency_id": int(DEFAULT_CURRENCY_ID),
-                                    "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                }],
-                            }
-                            if ref_nr:
-                                p["reference_nr"] = ref_nr
-                            payloads.append(p)
-                        # --------------------------------------------------------------------
-
-                        # Post all single-entry payloads (one or two) with backoff
-                        leg_ok = True
-                        last_resp_json = None
-                        for p in payloads:
-                            ok, resp = post_with_backoff(
-                                MANUAL_ENTRIES_V3,
-                                headers={**_auth(), "Content-Type": "application/json"},
-                                payload=p
-                            )
-                            if not ok:
-                                leg_ok = False
-                                results.append({
-                                    "row": idx + 1, "csv_row": row.get("csv_row",""),
-                                    "status": "ERROR", "error": resp
-                                })
-                                break
+                        ok, resp = post_with_backoff(
+                            MANUAL_ENTRIES_V3,
+                            headers={**_auth(), "Content-Type": "application/json"},
+                            payload=payload
+                        )
+                        if ok:
                             try:
-                                last_resp_json = resp.json()
+                                rid = resp.json().get("id")
                             except Exception:
-                                last_resp_json = None
-
-                        if leg_ok:
-                            rid = (last_resp_json or {}).get("id")
-                            leg_count = len(payloads)
+                                rid = None
                             results.append({
                                 "row": idx + 1, "csv_row": row.get("csv_row",""),
-                                "status": f"OK ({leg_count} leg{'s' if leg_count != 1 else ''})",
-                                "id": rid, "reference_nr": ref_nr
+                                "status": "OK", "id": rid, "reference_nr": ref_nr
+                            })
+                        else:
+                            results.append({
+                                "row": idx + 1, "csv_row": row.get("csv_row",""),
+                                "status": "ERROR", "error": resp
                             })
 
                     except requests.HTTPError as e:
@@ -1004,6 +966,6 @@ elif st.session_state.step == 3:
             if not results:
                 st.info("Keine gültigen Zeilen zum Posten gefunden.")
             else:
-                st.success(f"Fertig. {sum(1 for r in results if str(r.get('status','')).startswith('OK'))} Buchung(en) erfolgreich gepostet.")
+                st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
 
