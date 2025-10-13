@@ -746,7 +746,7 @@ elif st.session_state.step == 3:
                 st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
                 st.rerun()
 
-    # --- Editable grid (Bexio-relevante Spalten inkl. MWST) ---
+    # --- Editable grid (inkl. MWST) ---
     EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben", "mwst_code", "mwst_konto"]
 
     with st.form("bulk_entries_form", clear_on_submit=False):
@@ -763,15 +763,15 @@ elif st.session_state.step == 3:
                 "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
                 "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
                 "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-                "mwst_code":      st.column_config.TextColumn("MWST code (e.g., UN81 / VM81 / VB81)"),
-                "mwst_konto":     st.column_config.TextColumn("MWST Konto (optional; usually 3xxx/6xxx)"),
+                "mwst_code":      st.column_config.TextColumn("MWST code (UN81 / VM81 / VB81)"),
+                "mwst_konto":     st.column_config.TextColumn("MWST Konto (optional; 3xxx/6xxx if you want to override)"),
             }
         )
         colA, colB = st.columns(2)
         auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
         submitted  = colB.form_submit_button("Buchungen posten", type="primary")
 
-    # merge edited values back into full DF, preserve csv_row
+    # merge edited values back
     st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
@@ -781,45 +781,71 @@ elif st.session_state.step == 3:
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
     # ---------------------------------------
 
-    # --- minimal VAT helpers (kept local to avoid "bloat") ---
-    # maps your preferred VAT codes to their VAT-ledger accounts
+    # Your requested VAT ledgers
     VAT_CODE_TO_LEDGER = {
         "VM81": "1170",  # input VAT
         "UN81": "2200",  # output VAT
-        "VB81": "1171",  # input VAT (alt.)
+        "VB81": "1171",  # input VAT (investments/other BA)
     }
 
+    # ---- robust tax-code → tax_id mapper (v3 then v2; scan names too) ----
     def _ensure_tax_code_map():
-        """Fetch tax list once → build code→id map in session. Tries common keys."""
-        if "tax_code_to_id" in st.session_state and st.session_state.tax_code_to_id:
+        if st.session_state.get("tax_code_to_id"):
             return
+
+        def _ingest(items, mp):
+            for t in items or []:
+                try:
+                    tid = int(t.get("id"))
+                except Exception:
+                    continue
+
+                parts = []
+                for k in ("code", "abbreviation", "short_name", "key"):
+                    v = t.get(k)
+                    if v:
+                        parts.append(str(v))
+                name = str(t.get("name") or t.get("label") or "")
+                parts.append(name)
+                joined = " ".join(parts).upper()
+
+                # Pick up explicit tokens and also tolerate variants in names
+                for token in ("UN81", "VM81", "VB81"):
+                    if token in joined:
+                        mp.setdefault(token, tid)
+
+            return mp
+
+        mp: dict[str, int] = {}
+
+        # Try v3
         try:
-            url = f"{API_V3}/accounting/taxes"
-            r = requests.get(url, headers=_auth(), timeout=30)
+            r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
             if r.status_code == 401:
                 refresh_access_token()
-                r = requests.get(url, headers=_auth(), timeout=30)
-            r.raise_for_status()
-            items = r.json() if isinstance(r.json(), list) else []
-            mp = {}
-            for t in items:
-                # common shapes: {"id":..., "code":"UN81", "name":"...", "rate":8.1}
-                code = str(t.get("code") or t.get("abbreviation") or "").strip().upper()
-                if not code:
-                    # last resort: try to pull a "UN81" like token from name
-                    name = str(t.get("name") or "").upper()
-                    import re
-                    m = re.search(r"\b[UV][A-Z]?\d{2}\b", name)
-                    code = m.group(0) if m else ""
-                if code and "id" in t:
-                    mp[code] = int(t["id"])
-            st.session_state.tax_code_to_id = mp
-        except Exception as e:
-            st.session_state.tax_code_to_id = {}
+                r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
+            if r.status_code < 400:
+                _ingest(r.json() if isinstance(r.json(), list) else [], mp)
+        except Exception:
+            pass
+
+        # Fallback to v2
+        if not mp:
+            try:
+                r2 = requests.get(f"{API_V2}/taxes", headers=_auth_v2(), timeout=30)
+                if r2.status_code == 401:
+                    refresh_access_token()
+                    r2 = requests.get(f"{API_V2}/taxes", headers=_auth_v2(), timeout=30)
+                if r2.status_code < 400:
+                    _ingest(r2.json() if isinstance(r2.json(), list) else [], mp)
+            except Exception:
+                pass
+
+        st.session_state.tax_code_to_id = mp
 
     def _tax_id_from_code(code_str: str) -> int | None:
         _ensure_tax_code_map()
-        return st.session_state.tax_code_to_id.get(code_str.upper())
+        return st.session_state.get("tax_code_to_id", {}).get(code_str.upper())
 
     if submitted:
         rows = st.session_state.bulk_df.copy()
@@ -880,28 +906,35 @@ elif st.session_state.step == 3:
                             rr.raise_for_status()
                             ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                        desc = _s(row.get("beschreibung"))
-                        code_raw = _s(row.get("mwst_code")).upper().strip()
-                        base_mwst_konto = _s(row.get("mwst_konto")).strip()
+                        desc      = _s(row.get("beschreibung"))
+                        code_raw  = _s(row.get("mwst_code")).upper().strip()
+                        mwst_kto  = _s(row.get("mwst_konto")).strip()
 
-                        # --- VAT: resolve tax_id + VAT ledger from your mapping ---
+                        # --- VAT resolution ---
                         tax_id = None
                         tax_account_id = None
                         if code_raw:
+                            # 1) tax_id by code (v3 / v2, incl. name scan)
                             tax_id = _tax_id_from_code(code_raw)
-                            # prefer your explicit map (VM81/UN81/VB81), else fall back to the row's mwst_konto
-                            mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or base_mwst_konto or ""
+
+                            # 2) VAT ledger: prefer your map, else editor override
+                            mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
                             if mapped_ledger:
                                 tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
 
                             if not tax_id:
-                                raise ValueError(f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
-                                                 f"Bitte in bexio MWST-Sätze prüfen (sichtbar/aktiv).")
+                                raise ValueError(
+                                    f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
+                                    f"Bitte unter Einstellungen ▸ MWST prüfen, ob der Satz aktiv ist und "
+                                    f"‘{code_raw}’ im Namen oder Kürzel enthält."
+                                )
                             if not tax_account_id:
-                                raise ValueError(f"MWST-Konto für Code '{code_raw}' konnte nicht aufgelöst werden "
-                                                 f"(erwartet z. B. {VAT_CODE_TO_LEDGER.get(code_raw,'<Konto>')}).")
+                                raise ValueError(
+                                    f"MWST-Konto für '{code_raw}' konnte nicht aufgelöst werden "
+                                    f"(erwartet z. B. {VAT_CODE_TO_LEDGER.get(code_raw,'<Konto>')})."
+                                )
 
-                        # ----------------- build ONE single-entry payload -----------------
+                        # -------- ONE single-entry payload with attached VAT --------
                         entry = {
                             "debit_account_id": int(debit_id),
                             "credit_account_id": int(credit_id),
@@ -910,7 +943,6 @@ elif st.session_state.step == 3:
                             "currency_id": int(DEFAULT_CURRENCY_ID),
                             "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
                         }
-                        # attach VAT to the SINGLE line (links postings in bexio)
                         if tax_id and tax_account_id:
                             entry["tax_id"] = int(tax_id)
                             entry["tax_account_id"] = int(tax_account_id)
@@ -918,11 +950,11 @@ elif st.session_state.step == 3:
                         payload = {
                             "type": "manual_single_entry",
                             "date": date_iso,
-                            "entries": [entry],  # IMPORTANT: exactly one entry
+                            "entries": [entry],  # exactly one entry (bexio requirement)
                         }
                         if ref_nr:
                             payload["reference_nr"] = ref_nr
-                        # -------------------------------------------------------------------
+                        # -----------------------------------------------------------
 
                         ok, resp = post_with_backoff(
                             MANUAL_ENTRIES_V3,
@@ -959,7 +991,6 @@ elif st.session_state.step == 3:
                             "status": "ERROR", "error": str(e)
                         })
 
-                # polite pause between batches (optional)
                 if sleep_between_batches and (start + batch_size) < len(idxs):
                     time.sleep(sleep_between_batches)
 
