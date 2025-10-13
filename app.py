@@ -718,7 +718,6 @@ elif st.session_state.step == 3:
                 "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
                 "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
                 "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-                # NEW:
                 "mwst_code":      st.column_config.TextColumn("MWST code (e.g., UN81 or 8.1%)"),
                 "mwst_konto":     st.column_config.TextColumn("MWST Konto (base; e.g., 3401 or 6xxx)"),
             }
@@ -732,11 +731,11 @@ elif st.session_state.step == 3:
     st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
-    # ---------- NEW: batching controls ----------
+    # ---------- batching controls ----------
     colC, colD = st.columns(2)
     batch_size = int(colC.number_input("Batch-Grösse", min_value=1, max_value=200, value=50, step=1))
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
-    # -------------------------------------------
+    # --------------------------------------
 
     if submitted:
         rows = st.session_state.bulk_df.copy()
@@ -797,16 +796,21 @@ elif st.session_state.step == 3:
                             rr.raise_for_status()
                             ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                        desc   = _s(row.get("beschreibung"))
-                        code   = _s(row.get("mwst_code")).upper()
+                        # ---------- VAT-aware posting (single-entry requests only) ----------
+                        desc = _s(row.get("beschreibung"))
+                        code = _s(row.get("mwst_code")).upper()
                         vat_ac = resolve_account_id_from_number_or_id(row.get("mwst_konto"))
                         vat_rate = _parse_vat_rate(code)
                         use_vat = bool(vat_ac and (vat_rate is not None) and vat_rate > 0)
 
+                        # We will build one or more single-entry payloads,
+                        # because "manual_single_entry" only allows ONE entry per request.
+                        payloads = []
+
                         if use_vat:
                             # Decide sale vs purchase by comparing mwst_konto with the row's accounts
-                            is_sale = (int(vat_ac) == int(credit_id))   # typical: revenue 34xx on credit
-                            is_purchase = (int(vat_ac) == int(debit_id)) # typical: expense 6xxx on debit
+                            is_sale = (int(vat_ac) == int(credit_id))    # revenue base on credit side
+                            is_purchase = (int(vat_ac) == int(debit_id)) # expense base on debit side
                             if not (is_sale or is_purchase):
                                 is_sale = True  # default to sale if ambiguous
 
@@ -823,59 +827,70 @@ elif st.session_state.step == 3:
                             vat = round(amount - net, 2)
 
                             if is_sale:
-                                # Dr Bank (gross) = two legs: net + vat
-                                #   Cr Revenue (mwst_konto) = net
-                                #   Cr Output VAT (2201)     = vat
-                                entries = [
-                                    {
-                                        "debit_account_id": int(debit_id),   # bank debit
-                                        "credit_account_id": int(vat_ac),    # revenue credit (net)
+                                # 1) Dr Bank (net)  vs Cr Revenue (net)
+                                p1 = {
+                                    "type": "manual_single_entry",
+                                    "date": date_iso,
+                                    "entries": [{
+                                        "debit_account_id": int(debit_id),
+                                        "credit_account_id": int(vat_ac),
                                         "amount": float(net),
                                         "description": desc,
                                         "currency_id": int(DEFAULT_CURRENCY_ID),
                                         "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    },
-                                    {
-                                        "debit_account_id": int(debit_id),   # bank debit (VAT portion)
+                                    }],
+                                }
+                                # 2) Dr Bank (VAT) vs Cr Output VAT (VAT)
+                                p2 = {
+                                    "type": "manual_single_entry",
+                                    "date": date_iso,
+                                    "entries": [{
+                                        "debit_account_id": int(debit_id),
                                         "credit_account_id": int(vat_out_id),
                                         "amount": float(vat),
                                         "description": desc,
                                         "currency_id": int(DEFAULT_CURRENCY_ID),
                                         "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    },
-                                ]
+                                    }],
+                                }
+                                if ref_nr: 
+                                    p1["reference_nr"] = ref_nr
+                                    p2["reference_nr"] = ref_nr
+                                payloads.extend([p1, p2])
                             else:
-                                # Purchase:
-                                #   Dr Expense (mwst_konto)  = net
-                                #   Dr Input VAT (1170)      = vat
-                                #   Cr Bank/creditor         = gross (two legs to same credit acct)
-                                entries = [
-                                    {
-                                        "debit_account_id": int(vat_ac),     # expense debit (net)
-                                        "credit_account_id": int(credit_id), # bank/creditor credit
+                                # 1) Dr Expense (net) vs Cr Bank/Creditor (net)
+                                p1 = {
+                                    "type": "manual_single_entry",
+                                    "date": date_iso,
+                                    "entries": [{
+                                        "debit_account_id": int(vat_ac),
+                                        "credit_account_id": int(credit_id),
                                         "amount": float(net),
                                         "description": desc,
                                         "currency_id": int(DEFAULT_CURRENCY_ID),
                                         "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    },
-                                    {
-                                        "debit_account_id": int(vat_in_id),  # input VAT
-                                        "credit_account_id": int(credit_id), # bank/creditor credit
+                                    }],
+                                }
+                                # 2) Dr Input VAT (VAT) vs Cr Bank/Creditor (VAT)
+                                p2 = {
+                                    "type": "manual_single_entry",
+                                    "date": date_iso,
+                                    "entries": [{
+                                        "debit_account_id": int(vat_in_id),
+                                        "credit_account_id": int(credit_id),
                                         "amount": float(vat),
                                         "description": desc,
                                         "currency_id": int(DEFAULT_CURRENCY_ID),
                                         "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                                    },
-                                ]
-
-                            payload = {
-                                "type": "manual_single_entry",
-                                "date": date_iso,
-                                "entries": entries,
-                            }
+                                    }],
+                                }
+                                if ref_nr: 
+                                    p1["reference_nr"] = ref_nr
+                                    p2["reference_nr"] = ref_nr
+                                payloads.extend([p1, p2])
                         else:
                             # No VAT → original single-leg entry
-                            payload = {
+                            p = {
                                 "type": "manual_single_entry",
                                 "date": date_iso,
                                 "entries": [{
@@ -887,32 +902,40 @@ elif st.session_state.step == 3:
                                     "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
                                 }],
                             }
+                            if ref_nr:
+                                p["reference_nr"] = ref_nr
+                            payloads.append(p)
+                        # --------------------------------------------------------------------
 
-                        if ref_nr:
-                            payload["reference_nr"] = ref_nr
-
-
-                        # ---------- NEW: robust posting with backoff ----------
-                        ok, resp = post_with_backoff(
-                            MANUAL_ENTRIES_V3,
-                            headers={**_auth(), "Content-Type": "application/json"},
-                            payload=payload
-                        )
-                        if ok:
+                        # Post all single-entry payloads (one or two) with backoff
+                        leg_ok = True
+                        last_resp_json = None
+                        for p in payloads:
+                            ok, resp = post_with_backoff(
+                                MANUAL_ENTRIES_V3,
+                                headers={**_auth(), "Content-Type": "application/json"},
+                                payload=p
+                            )
+                            if not ok:
+                                leg_ok = False
+                                results.append({
+                                    "row": idx + 1, "csv_row": row.get("csv_row",""),
+                                    "status": "ERROR", "error": resp
+                                })
+                                break
                             try:
-                                rid = resp.json().get("id")
+                                last_resp_json = resp.json()
                             except Exception:
-                                rid = None
+                                last_resp_json = None
+
+                        if leg_ok:
+                            rid = (last_resp_json or {}).get("id")
+                            leg_count = len(payloads)
                             results.append({
                                 "row": idx + 1, "csv_row": row.get("csv_row",""),
-                                "status": "OK", "id": rid, "reference_nr": ref_nr
+                                "status": f"OK ({leg_count} leg{'s' if leg_count != 1 else ''})",
+                                "id": rid, "reference_nr": ref_nr
                             })
-                        else:
-                            results.append({
-                                "row": idx + 1, "csv_row": row.get("csv_row",""),
-                                "status": "ERROR", "error": resp
-                            })
-                        # -----------------------------------------------------
 
                     except requests.HTTPError as e:
                         try:
@@ -936,5 +959,6 @@ elif st.session_state.step == 3:
             if not results:
                 st.info("Keine gültigen Zeilen zum Posten gefunden.")
             else:
-                st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
+                st.success(f"Fertig. {sum(1 for r in results if str(r.get('status','')).startswith('OK'))} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
