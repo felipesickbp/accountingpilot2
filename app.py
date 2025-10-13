@@ -781,14 +781,14 @@ elif st.session_state.step == 3:
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
     # ---------------------------------------
 
-    # Your requested VAT ledgers
+    # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
     VAT_CODE_TO_LEDGER = {
         "VM81": "1170",  # input VAT
         "UN81": "2200",  # output VAT
-        "VB81": "1171",  # input VAT (investments/other BA)
+        "VB81": "1171",  # input VAT (Inv./BA)
     }
 
-    # ---- robust tax-code → tax_id mapper (v3 then v2; scan names too) ----
+    # ---- tax-code → tax_id mapper (v3 then v2; scans names/labels; semantic fallback) ----
     def _ensure_tax_code_map():
         if st.session_state.get("tax_code_to_id"):
             return
@@ -799,24 +799,39 @@ elif st.session_state.step == 3:
                     tid = int(t.get("id"))
                 except Exception:
                     continue
-
                 parts = []
-                for k in ("code", "abbreviation", "short_name", "key"):
+                for k in ("code", "abbreviation", "short_name", "key", "name", "label"):
                     v = t.get(k)
                     if v:
                         parts.append(str(v))
-                name = str(t.get("name") or t.get("label") or "")
-                parts.append(name)
-                joined = " ".join(parts).upper()
+                joined_upper = " ".join(parts).upper()
 
-                # Pick up explicit tokens and also tolerate variants in names
                 for token in ("UN81", "VM81", "VB81"):
-                    if token in joined:
+                    if token in joined_upper:
                         mp.setdefault(token, tid)
 
+                # rate-based inference (8.1%)
+                rate_val = None
+                for k in ("rate", "tax_rate", "percent", "value"):
+                    if t.get(k) is not None:
+                        try:
+                            rate_val = float(str(t[k]).replace("%", "").replace(",", "."))
+                        except Exception:
+                            pass
+                        break
+                if rate_val is not None and rate_val > 1.0:
+                    rate_val = rate_val / 100.0
+                def _near_81(x): return (x is not None) and (abs(x - 0.081) < 0.002)
+                if _near_81(rate_val):
+                    if ("UMSATZ" in joined_upper or " UN " in joined_upper or "UN-" in joined_upper) and "UN81" not in mp:
+                        mp.setdefault("UN81", tid)
+                    if ("MAT/DL" in joined_upper or " MAT " in joined_upper) and "VM81" not in mp:
+                        mp.setdefault("VM81", tid)
+                    if ("INV/BA" in joined_upper or " INV " in joined_upper or " BA " in joined_upper) and "VB81" not in mp:
+                        mp.setdefault("VB81", tid)
             return mp
 
-        mp: dict[str, int] = {}
+        mp = {}
 
         # Try v3
         try:
@@ -825,7 +840,8 @@ elif st.session_state.step == 3:
                 refresh_access_token()
                 r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
             if r.status_code < 400:
-                _ingest(r.json() if isinstance(r.json(), list) else [], mp)
+                data = r.json()
+                _ingest(data if isinstance(data, list) else [], mp)
         except Exception:
             pass
 
@@ -837,7 +853,8 @@ elif st.session_state.step == 3:
                     refresh_access_token()
                     r2 = requests.get(f"{API_V2}/taxes", headers=_auth_v2(), timeout=30)
                 if r2.status_code < 400:
-                    _ingest(r2.json() if isinstance(r2.json(), list) else [], mp)
+                    data2 = r2.json()
+                    _ingest(data2 if isinstance(data2, list) else [], mp)
             except Exception:
                 pass
 
@@ -914,28 +931,20 @@ elif st.session_state.step == 3:
                         tax_id = None
                         tax_account_id = None
                         if code_raw:
-                            # 1) tax_id by code (v3 / v2, incl. name scan)
                             tax_id = _tax_id_from_code(code_raw)
-
-                            # 2) VAT ledger: prefer your map, else editor override
-                            mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
-                            if mapped_ledger:
-                                tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
-
                             if not tax_id:
                                 raise ValueError(
                                     f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
                                     f"Bitte unter Einstellungen ▸ MWST prüfen, ob der Satz aktiv ist und "
-                                    f"‘{code_raw}’ im Namen oder Kürzel enthält."
+                                    f"‘{code_raw}’ im Namen/Kürzel enthält."
                                 )
-                            if not tax_account_id:
-                                raise ValueError(
-                                    f"MWST-Konto für '{code_raw}' konnte nicht aufgelöst werden "
-                                    f"(erwartet z. B. {VAT_CODE_TO_LEDGER.get(code_raw,'<Konto>')})."
-                                )
+                            # do not require tax_account_id here; we first try tax_id-only
+                            mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
+                            if mapped_ledger:
+                                tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
 
-                        # -------- ONE single-entry payload with attached VAT --------
-                        entry = {
+                        # -------- ONE single-entry payload; prefer tax_id only --------
+                        base_entry = {
                             "debit_account_id": int(debit_id),
                             "credit_account_id": int(credit_id),
                             "amount": float(amount),
@@ -943,24 +952,40 @@ elif st.session_state.step == 3:
                             "currency_id": int(DEFAULT_CURRENCY_ID),
                             "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
                         }
-                        if tax_id and tax_account_id:
-                            entry["tax_id"] = int(tax_id)
-                            entry["tax_account_id"] = int(tax_account_id)
 
-                        payload = {
-                            "type": "manual_single_entry",
-                            "date": date_iso,
-                            "entries": [entry],  # exactly one entry (bexio requirement)
-                        }
-                        if ref_nr:
-                            payload["reference_nr"] = ref_nr
-                        # -----------------------------------------------------------
+                        attempt_entry = dict(base_entry)
+                        if tax_id:
+                            attempt_entry["tax_id"] = int(tax_id)
 
-                        ok, resp = post_with_backoff(
-                            MANUAL_ENTRIES_V3,
-                            headers={**_auth(), "Content-Type": "application/json"},
-                            payload=payload
-                        )
+                        def _post_with_entry(entry_obj):
+                            payload_local = {
+                                "type": "manual_single_entry",
+                                "date": date_iso,
+                                "entries": [entry_obj],
+                            }
+                            if ref_nr:
+                                payload_local["reference_nr"] = ref_nr
+                            return post_with_backoff(
+                                MANUAL_ENTRIES_V3,
+                                headers={**_auth(), "Content-Type": "application/json"},
+                                payload=payload_local
+                            )
+
+                        # 1st attempt: let bexio handle VAT account if configured
+                        ok, resp = _post_with_entry(attempt_entry)
+
+                        # Fallback: if 422 and VAT present, retry once with tax_account_id
+                        if (not ok) and isinstance(resp, str) and "422" in resp and tax_id:
+                            if not tax_account_id:
+                                mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
+                                if mapped_ledger:
+                                    tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
+
+                            if tax_account_id:
+                                attempt_entry_fallback = dict(attempt_entry)
+                                attempt_entry_fallback["tax_account_id"] = int(tax_account_id)
+                                ok, resp = _post_with_entry(attempt_entry_fallback)
+
                         if ok:
                             try:
                                 rid = resp.json().get("id")
@@ -999,4 +1024,3 @@ elif st.session_state.step == 3:
             else:
                 st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
-
