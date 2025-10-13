@@ -2,9 +2,11 @@ import os, time, base64, io
 import pandas as pd
 import streamlit as st
 import requests
+import math, random
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
+
 
 load_dotenv(override=True)
 
@@ -49,7 +51,37 @@ _inject_local_css()
 # =========================
 # SCHEMA & HELPERS
 # =========================
-REQUIRED_COLS = ["csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung"]
+
+# VAT helpers and defaults
+VAT_CODE_TO_RATE = {
+    "UN81": 0.081,  # Standard (8.1%)
+    "UR26": 0.026,  # Reduced
+    "US38": 0.038,  # Special
+}
+DEFAULT_VAT_INPUT_ACCOUNT_NO  = "1170"  # Vorsteuer
+DEFAULT_VAT_OUTPUT_ACCOUNT_NO = "2201"  # Umsatzsteuer (geschuldete MWST)
+
+def _parse_vat_rate(val) -> float | None:
+    """Accepts codes (UN81, UR26, …) or numeric (0.081 or 8.1 or '8.1%')."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    up = s.upper()
+    if up in VAT_CODE_TO_RATE:
+        return VAT_CODE_TO_RATE[up]
+    try:
+        x = float(s.replace("%", "").replace(",", "."))
+        return (x / 100.0) if x > 1 else x
+    except Exception:
+        return None
+
+# Extended schema: add the two new columns at the END (as requested)
+REQUIRED_COLS = [
+    "csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung",
+    "mwst_code", "mwst_konto"
+]
 
 def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
     if df_in is None:
@@ -63,9 +95,10 @@ def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
     except Exception:
         df["csv_row"] = pd.Series([pd.NA]*len(df), dtype="Int64")
     df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
-    for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung"]:
+    for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung", "mwst_code", "mwst_konto"]:
         df[c] = df[c].astype(str)
     return df
+
 
 def _parse_date_to_iso(x: str) -> str:
     s = (str(x) if x is not None else "").strip()
@@ -126,6 +159,29 @@ def resolve_account_id_from_number_or_id(val):
     except Exception:
         return None
 
+
+def post_with_backoff(url, headers, payload, max_retries=5, base_sleep=0.8):
+    """POST with exponential backoff on 429/5xx. Returns (ok: bool, response_or_text)."""
+    for attempt in range(max_retries + 1):
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        # Auto refresh once on 401
+        if r.status_code == 401 and attempt == 0:
+            refresh_access_token()
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        if r.status_code < 400:
+            return True, r
+        if r.status_code not in (429, 500, 502, 503, 504) or attempt == max_retries:
+            # Give up
+            try:
+                return False, f"HTTP {r.status_code}: {r.text}"
+            except Exception:
+                return False, f"HTTP {r.status_code}"
+
+        # Retry with jitter
+        sleep_s = base_sleep * (2 ** attempt) + random.uniform(0, 0.25)
+        time.sleep(sleep_s)
+    return False, "Max retries exceeded"
 
 def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFrame:
     """Fill soll/haben based on keyword rules. Does NOT overwrite existing non-empty cells."""
@@ -458,9 +514,26 @@ elif st.session_state.step == 2:
         st.stop()
 
     st.subheader("2) Bankdatei importieren (CSV/Excel)")
-    st.caption("Lade eine CSV (oder Excel mit .csv-Endung). Danach Startzeile und Spalten zuordnen.")
+    st.caption("Lade eine CSV (oder Excel mit .csv-Endung) – oder starte ohne Datei mit einer leeren Tabelle.")
 
     bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
+
+    # NEW: Skip file upload and go straight to an empty grid
+    if st.button("Ohne Datei starten (leere Tabelle)"):
+        df_new = pd.DataFrame({
+            "csv_row":        [1],                             # one starter row so Step 3 opens
+            "buchungsnummer": [""],
+            "datum":          [dt_date.today().isoformat()],   # default to today
+            "beschreibung":   [""],
+            "betrag":         [0.0],
+            "soll":           [""],
+            "haben":          [""],
+            "mwst_code":      [""],                            # VAT columns you added
+            "mwst_konto":     [""],
+        })
+        st.session_state.bulk_df = ensure_schema(df_new)
+        st.session_state.step = 3
+        st.rerun()
 
     # --- Encoding & Decimal controls (used by the reader) ---
     col_enc1, col_enc2 = st.columns([2, 1])
@@ -470,6 +543,7 @@ elif st.session_state.step == 2:
         index=0,
     )
     decimal_choice = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
+
 
     # --- robust read + preview ---
     if bank_file is not None:
@@ -538,7 +612,11 @@ elif st.session_state.step == 2:
                 "betrag":         pick("betrag").apply(_to_float),
                 "soll":           "",                                    # auto-fill by bank/sign if set
                 "haben":          "",
+                # NEW VAT columns (empty by default; editable in Step 3)
+                "mwst_code":      "",
+                "mwst_konto":     "",
             })
+
 
             # Default date if parsing failed everywhere
             if (df_new["datum"] == "").all():
@@ -578,7 +656,6 @@ elif st.session_state.step == 3:
 
     # --- Keyword → Konto rules (persist in session) ---
     if "keyword_rules" not in st.session_state:
-        # Example defaults (you can remove/change)
         st.session_state.keyword_rules = [
             {"keyword": "Polizei",        "account": "2100", "side": "haben"},
             {"keyword": "Bancomatbezug",  "account": "1000", "side": "auto"},
@@ -609,20 +686,14 @@ elif st.session_state.step == 3:
                         "account": new_kto.strip(),
                         "side": _normalize_side(new_side),
                     })
-                    # clear inputs
                     st.session_state.kw_new_keyword = ""
                     st.session_state.kw_new_account = ""
 
-            # show rules
             if st.session_state.keyword_rules:
-                st.dataframe(
-                    pd.DataFrame(st.session_state.keyword_rules),
-                    use_container_width=True, hide_index=True
-                )
+                st.dataframe(pd.DataFrame(st.session_state.keyword_rules), use_container_width=True, hide_index=True)
             else:
                 st.info("Noch keine Regeln erfasst.")
 
-            # Apply rules immediately to the working grid
             if st.button("⚙️ Regeln anwenden", type="primary", key="kw_apply_btn"):
                 st.session_state.bulk_df = apply_keyword_rules_to_df(
                     st.session_state.bulk_df, st.session_state.keyword_rules
@@ -631,7 +702,7 @@ elif st.session_state.step == 3:
                 st.rerun()
 
     # --- Editable grid (only Bexio-relevant columns) ---
-    EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben"]
+    EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben", "mwst_code", "mwst_konto"]
 
     with st.form("bulk_entries_form", clear_on_submit=False):
         edited_view = st.data_editor(
@@ -647,8 +718,12 @@ elif st.session_state.step == 3:
                 "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
                 "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
                 "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
+                # NEW:
+                "mwst_code":      st.column_config.TextColumn("MWST code (e.g., UN81 or 8.1%)"),
+                "mwst_konto":     st.column_config.TextColumn("MWST Konto (base; e.g., 3401 or 6xxx)"),
             }
         )
+
         colA, colB = st.columns(2)
         auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
         submitted  = colB.form_submit_button("Buchungen posten", type="primary")
@@ -657,101 +732,206 @@ elif st.session_state.step == 3:
     st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
+    # ---------- NEW: batching controls ----------
+    colC, colD = st.columns(2)
+    batch_size = int(colC.number_input("Batch-Grösse", min_value=1, max_value=200, value=50, step=1))
+    sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
+    # -------------------------------------------
+
     if submitted:
         rows = st.session_state.bulk_df.copy()
         if rows.empty:
             st.warning("Keine Zeilen im Gitter.")
         else:
             results = []
-            for idx, row in rows.iterrows():
+            idxs = list(rows.index)
+
+            def _s(x):
                 try:
-                    def _s(x):
-                        try:
-                            if x is None or pd.isna(x):
-                                return ""
-                        except Exception:
-                            pass
-                        return str(x)
+                    if x is None or pd.isna(x):
+                        return ""
+                except Exception:
+                    pass
+                return str(x)
 
-                    def _f(x):
-                        try:
-                            return float(x)
-                        except Exception:
-                            return 0.0
+            def _f(x):
+                try:
+                    return float(x)
+                except Exception:
+                    return 0.0
 
-                    if (_s(row.get("datum")) == "" and
-                        _f(row.get("betrag")) == 0 and
-                        _s(row.get("soll")) == "" and
-                        _s(row.get("haben")) == ""):
-                        continue
+            for start in range(0, len(idxs), batch_size):
+                chunk_idxs = idxs[start:start + batch_size]
 
-                    # date
-                    date_val = row.get("datum")
-                    date_iso = date_val.isoformat() if isinstance(date_val, dt_date) else _parse_date_to_iso(_s(date_val))
-                    if not date_iso:
-                        raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
+                for idx in chunk_idxs:
+                    row = rows.loc[idx]
+                    try:
+                        # Skip empty editor rows
+                        if (_s(row.get("datum")) == "" and
+                            _f(row.get("betrag")) == 0 and
+                            _s(row.get("soll")) == "" and
+                            _s(row.get("haben")) == ""):
+                            continue
 
-                    # amount (absolute)
-                    amount = abs(_f(row.get("betrag")))
-                    if amount == 0:
-                        raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
+                        # date
+                        date_val = row.get("datum")
+                        date_iso = date_val.isoformat() if isinstance(date_val, dt_date) else _parse_date_to_iso(_s(date_val))
+                        if not date_iso:
+                            raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
 
-                    debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
-                    credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
-                    if not debit_id or not credit_id:
-                        raise ValueError(f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren.")
+                        # amount (absolute)
+                        amount = abs(_f(row.get("betrag")))
+                        if amount == 0:
+                            raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
 
-                    ref_nr = _s(row.get("buchungsnummer"))
-                    if auto_ref and not ref_nr:
-                        rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
-                        rr.raise_for_status()
-                        ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
+                        # accounts
+                        debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
+                        credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
+                        if not debit_id or not credit_id:
+                            raise ValueError(f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren.")
 
-                    desc = _s(row.get("beschreibung"))
+                        # reference number
+                        ref_nr = _s(row.get("buchungsnummer"))
+                        if auto_ref and not ref_nr:
+                            rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
+                            rr.raise_for_status()
+                            ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                    payload = {
-                        "type": "manual_single_entry",
-                        "date": date_iso,
-                        "entries": [{
-                            "debit_account_id": int(debit_id),
-                            "credit_account_id": int(credit_id),
-                            "amount": float(amount),
-                            "description": desc,
-                            "currency_id": int(DEFAULT_CURRENCY_ID),
-                            "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                        }],
-                    }
-                    if ref_nr:
-                        payload["reference_nr"] = ref_nr
+                                                desc   = _s(row.get("beschreibung"))
+                        code   = _s(row.get("mwst_code")).upper()
+                        vat_ac = resolve_account_id_from_number_or_id(row.get("mwst_konto"))
+                        vat_rate = _parse_vat_rate(code)
+                        use_vat = bool(vat_ac and (vat_rate is not None) and vat_rate > 0)
 
-                    r = requests.post(
-                        MANUAL_ENTRIES_V3,
-                        headers={**_auth(), "Content-Type": "application/json"},
-                        json=payload, timeout=30
-                    )
-                    if r.status_code == 401:
-                        refresh_access_token()
-                        r = requests.post(
+                        if use_vat:
+                            # Decide sale vs purchase by comparing mwst_konto with the row's accounts
+                            is_sale = (int(vat_ac) == int(credit_id))   # typical: revenue 34xx on credit
+                            is_purchase = (int(vat_ac) == int(debit_id)) # typical: expense 6xxx on debit
+                            if not (is_sale or is_purchase):
+                                is_sale = True  # default to sale if ambiguous
+
+                            # Resolve VAT contra accounts (input vs output)
+                            vat_in_id  = resolve_account_id_from_number_or_id(DEFAULT_VAT_INPUT_ACCOUNT_NO)
+                            vat_out_id = resolve_account_id_from_number_or_id(DEFAULT_VAT_OUTPUT_ACCOUNT_NO)
+                            if is_purchase and not vat_in_id:
+                                raise ValueError("Input VAT account (DEFAULT_VAT_INPUT_ACCOUNT_NO) could not be resolved.")
+                            if is_sale and not vat_out_id:
+                                raise ValueError("Output VAT account (DEFAULT_VAT_OUTPUT_ACCOUNT_NO) could not be resolved.")
+
+                            # Split gross → net + vat
+                            net = round(amount / (1.0 + vat_rate), 2)
+                            vat = round(amount - net, 2)
+
+                            if is_sale:
+                                # Dr Bank (gross) = two legs: net + vat
+                                #   Cr Revenue (mwst_konto) = net
+                                #   Cr Output VAT (2201)     = vat
+                                entries = [
+                                    {
+                                        "debit_account_id": int(debit_id),   # bank debit
+                                        "credit_account_id": int(vat_ac),    # revenue credit (net)
+                                        "amount": float(net),
+                                        "description": desc,
+                                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                                    },
+                                    {
+                                        "debit_account_id": int(debit_id),   # bank debit (VAT portion)
+                                        "credit_account_id": int(vat_out_id),
+                                        "amount": float(vat),
+                                        "description": desc,
+                                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                                    },
+                                ]
+                            else:
+                                # Purchase:
+                                #   Dr Expense (mwst_konto)  = net
+                                #   Dr Input VAT (1170)      = vat
+                                #   Cr Bank/creditor         = gross (two legs to same credit acct)
+                                entries = [
+                                    {
+                                        "debit_account_id": int(vat_ac),     # expense debit (net)
+                                        "credit_account_id": int(credit_id), # bank/creditor credit
+                                        "amount": float(net),
+                                        "description": desc,
+                                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                                    },
+                                    {
+                                        "debit_account_id": int(vat_in_id),  # input VAT
+                                        "credit_account_id": int(credit_id), # bank/creditor credit
+                                        "amount": float(vat),
+                                        "description": desc,
+                                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                                    },
+                                ]
+
+                            payload = {
+                                "type": "manual_single_entry",
+                                "date": date_iso,
+                                "entries": entries,
+                            }
+                        else:
+                            # No VAT → original single-leg entry
+                            payload = {
+                                "type": "manual_single_entry",
+                                "date": date_iso,
+                                "entries": [{
+                                    "debit_account_id": int(debit_id),
+                                    "credit_account_id": int(credit_id),
+                                    "amount": float(amount),
+                                    "description": desc,
+                                    "currency_id": int(DEFAULT_CURRENCY_ID),
+                                    "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                                }],
+                            }
+
+                        if ref_nr:
+                            payload["reference_nr"] = ref_nr
+
+
+                        # ---------- NEW: robust posting with backoff ----------
+                        ok, resp = post_with_backoff(
                             MANUAL_ENTRIES_V3,
                             headers={**_auth(), "Content-Type": "application/json"},
-                            json=payload, timeout=30
+                            payload=payload
                         )
-                    if r.status_code == 429:
-                        results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "Rate limited (429)"})
-                        continue
+                        if ok:
+                            try:
+                                rid = resp.json().get("id")
+                            except Exception:
+                                rid = None
+                            results.append({
+                                "row": idx + 1, "csv_row": row.get("csv_row",""),
+                                "status": "OK", "id": rid, "reference_nr": ref_nr
+                            })
+                        else:
+                            results.append({
+                                "row": idx + 1, "csv_row": row.get("csv_row",""),
+                                "status": "ERROR", "error": resp
+                            })
+                        # -----------------------------------------------------
 
-                    r.raise_for_status()
-                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "OK",
-                                    "id": r.json().get("id"), "reference_nr": ref_nr})
-                except requests.HTTPError as e:
-                    try:
-                        err_txt = e.response.text
-                    except Exception:
-                        err_txt = str(e)
-                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""),
-                                    "status": f"HTTP {e.response.status_code}", "error": err_txt})
-                except Exception as e:
-                    results.append({"row": idx + 1, "csv_row": row.get("csv_row",""), "status": "ERROR", "error": str(e)})
+                    except requests.HTTPError as e:
+                        try:
+                            err_txt = e.response.text
+                        except Exception:
+                            err_txt = str(e)
+                        results.append({
+                            "row": idx + 1, "csv_row": row.get("csv_row",""),
+                            "status": f"HTTP {e.response.status_code}", "error": err_txt
+                        })
+                    except Exception as e:
+                        results.append({
+                            "row": idx + 1, "csv_row": row.get("csv_row",""),
+                            "status": "ERROR", "error": str(e)
+                        })
+
+                # polite pause between batches (optional)
+                if sleep_between_batches and (start + batch_size) < len(idxs):
+                    time.sleep(sleep_between_batches)
 
             if not results:
                 st.info("Keine gültigen Zeilen zum Posten gefunden.")
