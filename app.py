@@ -1040,25 +1040,18 @@ elif st.session_state.step == 3:
                         code_raw  = _s(row.get("mwst_code")).upper().strip()
                         mwst_kto  = _s(row.get("mwst_konto")).strip()
 
-                        # --- VAT resolution ---
+
+                        # --- VAT resolution (only tax_id, no tax_account_id) ---
                         tax_id = None
-                        tax_account_id = None
                         if code_raw:
                             tax_id = _tax_id_from_code(code_raw)
                             if not tax_id:
                                 raise ValueError(
-                                    f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden.\n\n"
-                                    f"Da die bexio-API in deiner Firma keine Steuerliste (/taxes) bereitstellt (404), "
-                                    f"kann der Code nicht automatisch aufgelöst werden.\n\n"
-                                    f"Bitte setze in deiner .env z.B.:\n"
-                                    f"    BEXIO_TAX_ID_{code_raw}=<NUMERISCHE_TAX_ID_AUS_BEXIO>\n"
-                                    f"und starte die App neu."
+                                    f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
+                                    f"Bitte prüfe im bexio-Mandanten, ob der Satz aktiv ist und "
+                                    f"‘{code_raw}’ im Namen/Kürzel enthält oder setze BEXIO_TAX_ID_{code_raw} in der .env."
                                 )
 
-                            # do not require tax_account_id here; we first try tax_id-only
-                            mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
-                            if mapped_ledger:
-                                tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
 
                         # -------- ONE single-entry payload; prefer tax_id only --------
                         base_entry = {
