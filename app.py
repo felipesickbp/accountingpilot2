@@ -919,24 +919,29 @@ elif st.session_state.step == 3:
         except Exception as e:
             st.write("v2 request error:", str(e))
 
-        # === DEBUG BUTTON: show recent manual entries with tax_id ===
-    if st.button("Debug: show recent manual entries (tax_id)"):
+           # === DEBUG BUTTON: show today's manual entries (tax_id) ===
+    if st.button("Debug: show today's manual entries (tax_id)"):
         try:
-            r = requests.get(MANUAL_ENTRIES_V3, headers=_auth(), timeout=30)
+            # get as many entries as possible (max limit is 2000 per bexio docs)
+            r = requests.get(
+                MANUAL_ENTRIES_V3,
+                headers=_auth(),
+                params={"limit": 2000},
+                timeout=30,
+            )
             st.write("status manual_entries:", r.status_code)
 
             data = r.json()
             if isinstance(data, list) and data:
                 simplified = []
-                # show only first ~20 entries to keep output readable
-                for e in data[:20]:
+                for e in data:
                     entry_id = e.get("id")
-                    date = e.get("date")
+                    date_val = e.get("date")
                     ref = e.get("reference_nr")
                     for sub in e.get("entries") or []:
                         simplified.append({
                             "manual_entry_id": entry_id,
-                            "date": date,
+                            "date": date_val,
                             "reference_nr": ref,
                             "debit_account_id": sub.get("debit_account_id"),
                             "credit_account_id": sub.get("credit_account_id"),
@@ -945,10 +950,25 @@ elif st.session_state.step == 3:
                             "tax_account_id": sub.get("tax_account_id"),
                         })
 
-                if simplified:
-                    st.dataframe(pd.DataFrame(simplified), use_container_width=True)
+                if not simplified:
+                    st.write("Keine Buchungen gefunden.")
                 else:
-                    st.write("Keine tax_id in den letzten Buchungen gefunden.")
+                    df = pd.DataFrame(simplified)
+
+                    # filter for today's date
+                    today_str = dt_date.today().isoformat()
+                    st.write("Heute:", today_str)
+                    df_today = df[df["date"] == today_str]
+
+                    if not df_today.empty:
+                        st.write("Manuelle Buchungen mit heutigem Datum:")
+                        st.dataframe(df_today, use_container_width=True)
+                    else:
+                        st.write("Keine Buchungen mit heutigem Datum gefunden – zeige letzte 50 insgesamt.")
+                        # sort by date and show latest 50 as fallback
+                        df["date_parsed"] = pd.to_datetime(df["date"], errors="coerce")
+                        df = df.sort_values("date_parsed", ascending=False)
+                        st.dataframe(df.head(50).drop(columns=["date_parsed"]), use_container_width=True)
             else:
                 st.write("Antwort:", data)
         except Exception as e:
