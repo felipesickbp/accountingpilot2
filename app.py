@@ -919,6 +919,42 @@ elif st.session_state.step == 3:
         except Exception as e:
             st.write("v2 request error:", str(e))
 
+        # === DEBUG BUTTON: show recent manual entries with tax_id ===
+    if st.button("Debug: show recent manual entries (tax_id)"):
+        try:
+            r = requests.get(MANUAL_ENTRIES_V3, headers=_auth(), timeout=30)
+            st.write("status manual_entries:", r.status_code)
+
+            data = r.json()
+            if isinstance(data, list) and data:
+                simplified = []
+                # show only first ~20 entries to keep output readable
+                for e in data[:20]:
+                    entry_id = e.get("id")
+                    date = e.get("date")
+                    ref = e.get("reference_nr")
+                    for sub in e.get("entries") or []:
+                        simplified.append({
+                            "manual_entry_id": entry_id,
+                            "date": date,
+                            "reference_nr": ref,
+                            "debit_account_id": sub.get("debit_account_id"),
+                            "credit_account_id": sub.get("credit_account_id"),
+                            "amount": sub.get("amount"),
+                            "tax_id": sub.get("tax_id"),
+                            "tax_account_id": sub.get("tax_account_id"),
+                        })
+
+                if simplified:
+                    st.dataframe(pd.DataFrame(simplified), use_container_width=True)
+                else:
+                    st.write("Keine tax_id in den letzten Buchungen gefunden.")
+            else:
+                st.write("Antwort:", data)
+        except Exception as e:
+            st.write("manual_entries request error:", str(e))
+
+
 
 
     if submitted:
