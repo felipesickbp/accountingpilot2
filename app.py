@@ -699,18 +699,7 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
-      # DEBUG: show VAT codes from API
-    if st.button("Debug: show VAT codes from API"):
-        _ensure_tax_code_map()
-        st.write("tax_code_to_id:", st.session_state.get("tax_code_to_id"))
-
-        # Optional: show raw API response for inspection
-        r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
-        if r.status_code == 401:
-            refresh_access_token()
-            r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
-        st.json(r.json())
-
+   
     # --- Keyword → Konto rules (persist in session) ---
     if "keyword_rules" not in st.session_state:
         st.session_state.keyword_rules = [
@@ -875,6 +864,19 @@ elif st.session_state.step == 3:
     def _tax_id_from_code(code_str: str) -> int | None:
         _ensure_tax_code_map()
         return st.session_state.get("tax_code_to_id", {}).get(code_str.upper())
+
+    # === DEBUG BUTTON GOES HERE ===
+    if st.button("Debug: show VAT codes from API"):
+        _ensure_tax_code_map()
+        st.write("tax_code_to_id:", st.session_state.get("tax_code_to_id"))
+
+        # Optional: show raw API response for inspection
+        r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
+        if r.status_code == 401:
+            refresh_access_token()
+            r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
+        st.json(r.json())
+
 
     if submitted:
         rows = st.session_state.bulk_df.copy()
