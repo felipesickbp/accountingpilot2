@@ -1055,46 +1055,33 @@ elif st.session_state.step == 3:
 
                         # -------- ONE single-entry payload; prefer tax_id only --------
                         base_entry = {
-                            "debit_account_id": int(debit_id),
-                            "credit_account_id": int(credit_id),
-                            "amount": float(amount),
-                            "description": desc,
-                            "currency_id": int(DEFAULT_CURRENCY_ID),
-                            "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                        "debit_account_id": int(debit_id),
+                        "credit_account_id": int(credit_id),
+                        "amount": float(amount),
+                        "description": desc,
+                        "currency_id": int(DEFAULT_CURRENCY_ID),
+                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                    }
+                    
+                    if tax_id:
+                        base_entry["tax_id"] = int(tax_id)  # only tax_id, no tax_account_id
+                    
+                    def _post_with_entry(entry_obj):
+                        payload_local = {
+                            "type": "manual_single_entry",
+                            "date": date_iso,
+                            "entries": [entry_obj],
                         }
+                        if ref_nr:
+                            payload_local["reference_nr"] = ref_nr
+                        return post_with_backoff(
+                            MANUAL_ENTRIES_V3,
+                            headers={**_auth(), "Content-Type": "application/json"},
+                            payload=payload_local,
+                        )
+                    
+                    ok, resp = _post_with_entry(base_entry)
 
-                        attempt_entry = dict(base_entry)
-                        if tax_id:
-                            attempt_entry["tax_id"] = int(tax_id)
-
-                        def _post_with_entry(entry_obj):
-                            payload_local = {
-                                "type": "manual_single_entry",
-                                "date": date_iso,
-                                "entries": [entry_obj],
-                            }
-                            if ref_nr:
-                                payload_local["reference_nr"] = ref_nr
-                            return post_with_backoff(
-                                MANUAL_ENTRIES_V3,
-                                headers={**_auth(), "Content-Type": "application/json"},
-                                payload=payload_local
-                            )
-
-                        # 1st attempt: let bexio handle VAT account if configured
-                        ok, resp = _post_with_entry(attempt_entry)
-
-                        # Fallback: if 422 and VAT present, retry once with tax_account_id
-                        if (not ok) and isinstance(resp, str) and "422" in resp and tax_id:
-                            if not tax_account_id:
-                                mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
-                                if mapped_ledger:
-                                    tax_account_id = resolve_account_id_from_number_or_id(mapped_ledger)
-
-                            if tax_account_id:
-                                attempt_entry_fallback = dict(attempt_entry)
-                                attempt_entry_fallback["tax_account_id"] = int(tax_account_id)
-                                ok, resp = _post_with_entry(attempt_entry_fallback)
 
                         if ok:
                             try:
