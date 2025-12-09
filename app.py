@@ -6,7 +6,7 @@ import math, random
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
-
+import re
 
 load_dotenv(override=True)
 
@@ -698,6 +698,18 @@ elif st.session_state.step == 3:
         st.stop()
 
     st.subheader("3) Kontrolle & Import")
+
+      # DEBUG: show VAT codes from API
+    if st.button("Debug: show VAT codes from API"):
+        _ensure_tax_code_map()
+        st.write("tax_code_to_id:", st.session_state.get("tax_code_to_id"))
+
+        # Optional: show raw API response for inspection
+        r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
+        if r.status_code == 401:
+            refresh_access_token()
+            r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
+        st.json(r.json())
 
     # --- Keyword → Konto rules (persist in session) ---
     if "keyword_rules" not in st.session_state:
