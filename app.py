@@ -983,7 +983,7 @@ elif st.session_state.step == 3:
                             rr.raise_for_status()
                             ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                                                desc      = _s(row.get("beschreibung"))
+                        desc      = _s(row.get("beschreibung"))
                         code_raw  = _s(row.get("mwst_code")).upper().strip()
                         mwst_kto  = _s(row.get("mwst_konto")).strip()
 
