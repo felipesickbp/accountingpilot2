@@ -862,8 +862,31 @@ elif st.session_state.step == 3:
         st.session_state.tax_code_to_id = mp
 
     def _tax_id_from_code(code_str: str) -> int | None:
-        _ensure_tax_code_map()
-        return st.session_state.get("tax_code_to_id", {}).get(code_str.upper())
+    """
+    Resolve a VAT code like 'VB81' to a numeric tax_id.
+
+    1) First check env override: BEXIO_TAX_ID_<CODE>, e.g. BEXIO_TAX_ID_VB81=1234
+    2) Then (best effort) use the cached map from _ensure_tax_code_map()
+       – in your setup this will stay empty because both tax endpoints 404.
+    """
+    code = (code_str or "").upper().strip()
+    if not code:
+        return None
+
+    # 1) ENV override, e.g. BEXIO_TAX_ID_VB81
+    env_key = f"BEXIO_TAX_ID_{code}"
+    env_val = os.getenv(env_key)
+    if env_val:
+        try:
+            return int(env_val)
+        except ValueError:
+            # if misconfigured, ignore and fall back
+            pass
+
+    # 2) Fallback to API-based map (will be empty for you because taxes endpoints 404)
+    _ensure_tax_code_map()
+    return st.session_state.get("tax_code_to_id", {}).get(code)
+
 
       # === DEBUG BUTTON: show VAT codes from API (v3 and v2) ===
     if st.button("Debug: show VAT codes from API"):
@@ -964,12 +987,16 @@ elif st.session_state.step == 3:
                         tax_account_id = None
                         if code_raw:
                             tax_id = _tax_id_from_code(code_raw)
-                            if not tax_id:
-                                raise ValueError(
-                                    f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
-                                    f"Bitte unter Einstellungen ▸ MWST prüfen, ob der Satz aktiv ist und "
-                                    f"‘{code_raw}’ im Namen/Kürzel enthält."
-                                )
+                                if not tax_id:
+                                    raise ValueError(
+                                        f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden.\n\n"
+                                        f"Da die bexio-API in deiner Firma keine Steuerliste (/taxes) bereitstellt (404), "
+                                        f"kann der Code nicht automatisch aufgelöst werden.\n\n"
+                                        f"Bitte setze in deiner .env z.B.:\n"
+                                        f"    BEXIO_TAX_ID_{code_raw}=<NUMERISCHE_TAX_ID_AUS_BEXIO>\n"
+                                        f"und starte die App neu."
+                                    )
+
                             # do not require tax_account_id here; we first try tax_id-only
                             mapped_ledger = VAT_CODE_TO_LEDGER.get(code_raw) or mwst_kto or ""
                             if mapped_ledger:
