@@ -890,39 +890,9 @@ elif st.session_state.step == 3:
         _ensure_tax_code_map()
         return st.session_state.get("tax_code_to_id", {}).get(code)
 
-    # === DEBUG BUTTON: show VAT codes from API (v3 and v2) ===
-    if st.button("Debug: show VAT codes from API"):
-        _ensure_tax_code_map()
-        st.write("tax_code_to_id:", st.session_state.get("tax_code_to_id"))
-
-        # --- v3 endpoint ---
-        st.write("---- v3 /accounting/taxes ----")
+        # === DEBUG BUTTON: raw JSON for today's manual entries ===
+    if st.button("Debug: raw JSON for today's entries"):
         try:
-            r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
-            st.write("status v3:", r.status_code)
-            try:
-                st.json(r.json())
-            except Exception:
-                st.write(r.text)
-        except Exception as e:
-            st.write("v3 request error:", str(e))
-
-        # --- v2 endpoint ---
-        st.write("---- v2 /taxes ----")
-        try:
-            r2 = requests.get(f"{API_V2}/taxes", headers=_auth_v2(), timeout=30)
-            st.write("status v2:", r2.status_code)
-            try:
-                st.json(r2.json())
-            except Exception:
-                st.write(r2.text)
-        except Exception as e:
-            st.write("v2 request error:", str(e))
-
-           # === DEBUG BUTTON: show today's manual entries (tax_id) ===
-    if st.button("Debug: show today's manual entries (tax_id)"):
-        try:
-            # get as many entries as possible (max limit is 2000 per bexio docs)
             r = requests.get(
                 MANUAL_ENTRIES_V3,
                 headers=_auth(),
@@ -930,51 +900,28 @@ elif st.session_state.step == 3:
                 timeout=30,
             )
             st.write("status manual_entries:", r.status_code)
-
             data = r.json()
+
             if isinstance(data, list) and data:
-                simplified = []
-                for e in data:
-                    entry_id = e.get("id")
-                    date_val = e.get("date")
-                    ref = e.get("reference_nr")
-                    for sub in e.get("entries") or []:
-                        simplified.append({
-                            "manual_entry_id": entry_id,
-                            "date": date_val,
-                            "reference_nr": ref,
-                            "debit_account_id": sub.get("debit_account_id"),
-                            "credit_account_id": sub.get("credit_account_id"),
-                            "amount": sub.get("amount"),
-                            "tax_id": sub.get("tax_id"),
-                            "tax_account_id": sub.get("tax_account_id"),
-                        })
+                today_str = dt_date.today().isoformat()
+                st.write("Heute:", today_str)
 
-                if not simplified:
-                    st.write("Keine Buchungen gefunden.")
+                # Filter for today's entries
+                todays_entries = [e for e in data if e.get("date") == today_str]
+
+                if not todays_entries:
+                    st.write("Keine Buchungen mit heutigem Datum gefunden.")
                 else:
-                    df = pd.DataFrame(simplified)
-
-                    # filter for today's date
-                    today_str = dt_date.today().isoformat()
-                    st.write("Heute:", today_str)
-                    df_today = df[df["date"] == today_str]
-
-                    if not df_today.empty:
-                        st.write("Manuelle Buchungen mit heutigem Datum:")
-                        st.dataframe(df_today, use_container_width=True)
-                    else:
-                        st.write("Keine Buchungen mit heutigem Datum gefunden – zeige letzte 50 insgesamt.")
-                        # sort by date and show latest 50 as fallback
-                        df["date_parsed"] = pd.to_datetime(df["date"], errors="coerce")
-                        df = df.sort_values("date_parsed", ascending=False)
-                        st.dataframe(df.head(50).drop(columns=["date_parsed"]), use_container_width=True)
+                    st.write(f"{len(todays_entries)} Buchung(en) mit heutigem Datum gefunden.")
+                    for e in todays_entries:
+                        st.json(e)
             else:
                 st.write("Antwort:", data)
         except Exception as e:
-            st.write("manual_entries request error:", str(e))
+            st.write("manual_entries raw-json error:", str(e))
 
 
+   
 
 
     if submitted:
