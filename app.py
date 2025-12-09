@@ -983,12 +983,11 @@ elif st.session_state.step == 3:
                             rr.raise_for_status()
                             ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
 
-                        desc      = _s(row.get("beschreibung"))
+                                                desc      = _s(row.get("beschreibung"))
                         code_raw  = _s(row.get("mwst_code")).upper().strip()
                         mwst_kto  = _s(row.get("mwst_konto")).strip()
 
-
-                        # --- VAT resolution (only tax_id, no tax_account_id) ---
+                        # --- VAT resolution via env-based tax_id ---
                         tax_id = None
                         if code_raw:
                             tax_id = _tax_id_from_code(code_raw)
@@ -999,20 +998,25 @@ elif st.session_state.step == 3:
                                     f"‘{code_raw}’ im Namen/Kürzel enthält oder setze BEXIO_TAX_ID_{code_raw} in der .env."
                                 )
 
-
-                        # -------- ONE single-entry payload; prefer tax_id only --------
+                        # -------- ONE single-entry payload incl. VAT --------
                         base_entry = {
-                        "debit_account_id": int(debit_id),
-                        "credit_account_id": int(credit_id),
-                        "amount": float(amount),
-                        "description": desc,
-                        "currency_id": int(DEFAULT_CURRENCY_ID),
-                        "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                            "debit_account_id": int(debit_id),
+                            "credit_account_id": int(credit_id),
+                            "amount": float(amount),
+                            "description": desc,
+                            "currency_id": int(DEFAULT_CURRENCY_ID),
+                            "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
                         }
-                        
+
                         if tax_id:
-                            base_entry["tax_id"] = int(tax_id)  # only tax_id, no tax_account_id
-                        
+                            base_entry["tax_id"] = int(tax_id)
+                            # IMPORTANT:
+                            # For type="manual_single_entry", bexio requires
+                            # tax_account_id == debit_account_id or credit_account_id.
+                            # Your UI bookings show tax_account_id == debit_account_id,
+                            # so we mirror that behaviour here.
+                            base_entry["tax_account_id"] = int(debit_id)
+
                         def _post_with_entry(entry_obj):
                             payload_local = {
                                 "type": "manual_single_entry",
@@ -1026,6 +1030,7 @@ elif st.session_state.step == 3:
                                 headers={**_auth(), "Content-Type": "application/json"},
                                 payload=payload_local,
                             )
+
                         
                         ok, resp = _post_with_entry(base_entry)
 
