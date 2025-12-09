@@ -1061,26 +1061,26 @@ elif st.session_state.step == 3:
                         "description": desc,
                         "currency_id": int(DEFAULT_CURRENCY_ID),
                         "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
-                    }
-                    
-                    if tax_id:
-                        base_entry["tax_id"] = int(tax_id)  # only tax_id, no tax_account_id
-                    
-                    def _post_with_entry(entry_obj):
-                        payload_local = {
-                            "type": "manual_single_entry",
-                            "date": date_iso,
-                            "entries": [entry_obj],
                         }
-                        if ref_nr:
-                            payload_local["reference_nr"] = ref_nr
-                        return post_with_backoff(
-                            MANUAL_ENTRIES_V3,
-                            headers={**_auth(), "Content-Type": "application/json"},
-                            payload=payload_local,
-                        )
-                    
-                    ok, resp = _post_with_entry(base_entry)
+                        
+                        if tax_id:
+                            base_entry["tax_id"] = int(tax_id)  # only tax_id, no tax_account_id
+                        
+                        def _post_with_entry(entry_obj):
+                            payload_local = {
+                                "type": "manual_single_entry",
+                                "date": date_iso,
+                                "entries": [entry_obj],
+                            }
+                            if ref_nr:
+                                payload_local["reference_nr"] = ref_nr
+                            return post_with_backoff(
+                                MANUAL_ENTRIES_V3,
+                                headers={**_auth(), "Content-Type": "application/json"},
+                                payload=payload_local,
+                            )
+                        
+                        ok, resp = _post_with_entry(base_entry)
 
 
                         if ok:
