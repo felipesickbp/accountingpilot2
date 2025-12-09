@@ -782,7 +782,7 @@ elif st.session_state.step == 3:
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
     # ---------------------------------------
 
-    # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
+     # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
     VAT_CODE_TO_LEDGER = {
         "VM81": "1170",  # input VAT
         "UN81": "2200",  # output VAT
@@ -822,7 +822,10 @@ elif st.session_state.step == 3:
                         break
                 if rate_val is not None and rate_val > 1.0:
                     rate_val = rate_val / 100.0
-                def _near_81(x): return (x is not None) and (abs(x - 0.081) < 0.002)
+
+                def _near_81(x): 
+                    return (x is not None) and (abs(x - 0.081) < 0.002)
+
                 if _near_81(rate_val):
                     if ("UMSATZ" in joined_upper or " UN " in joined_upper or "UN-" in joined_upper) and "UN81" not in mp:
                         mp.setdefault("UN81", tid)
@@ -862,33 +865,32 @@ elif st.session_state.step == 3:
         st.session_state.tax_code_to_id = mp
 
     def _tax_id_from_code(code_str: str) -> int | None:
-    """
-    Resolve a VAT code like 'VB81' to a numeric tax_id.
+        """
+        Resolve a VAT code like 'VB81' to a numeric tax_id.
 
-    1) First check env override: BEXIO_TAX_ID_<CODE>, e.g. BEXIO_TAX_ID_VB81=1234
-    2) Then (best effort) use the cached map from _ensure_tax_code_map()
-       – in your setup this will stay empty because both tax endpoints 404.
-    """
-    code = (code_str or "").upper().strip()
-    if not code:
-        return None
+        1) First check env override: BEXIO_TAX_ID_<CODE>, e.g. BEXIO_TAX_ID_VB81=1234
+        2) Then (best effort) use the cached map from _ensure_tax_code_map()
+           – in your setup this will stay empty because both tax endpoints 404.
+        """
+        code = (code_str or "").upper().strip()
+        if not code:
+            return None
 
-    # 1) ENV override, e.g. BEXIO_TAX_ID_VB81
-    env_key = f"BEXIO_TAX_ID_{code}"
-    env_val = os.getenv(env_key)
-    if env_val:
-        try:
-            return int(env_val)
-        except ValueError:
-            # if misconfigured, ignore and fall back
-            pass
+        # 1) ENV override, e.g. BEXIO_TAX_ID_VB81
+        env_key = f"BEXIO_TAX_ID_{code}"
+        env_val = os.getenv(env_key)
+        if env_val:
+            try:
+                return int(env_val)
+            except ValueError:
+                # if misconfigured, ignore and fall back
+                pass
 
-    # 2) Fallback to API-based map (will be empty for you because taxes endpoints 404)
-    _ensure_tax_code_map()
-    return st.session_state.get("tax_code_to_id", {}).get(code)
+        # 2) Fallback to API-based map (will be empty for you because taxes endpoints 404)
+        _ensure_tax_code_map()
+        return st.session_state.get("tax_code_to_id", {}).get(code)
 
-
-      # === DEBUG BUTTON: show VAT codes from API (v3 and v2) ===
+    # === DEBUG BUTTON: show VAT codes from API (v3 and v2) ===
     if st.button("Debug: show VAT codes from API"):
         _ensure_tax_code_map()
         st.write("tax_code_to_id:", st.session_state.get("tax_code_to_id"))
