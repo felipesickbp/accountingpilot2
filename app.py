@@ -865,17 +865,35 @@ elif st.session_state.step == 3:
         _ensure_tax_code_map()
         return st.session_state.get("tax_code_to_id", {}).get(code_str.upper())
 
-    # === DEBUG BUTTON GOES HERE ===
+      # === DEBUG BUTTON: show VAT codes from API (v3 and v2) ===
     if st.button("Debug: show VAT codes from API"):
         _ensure_tax_code_map()
         st.write("tax_code_to_id:", st.session_state.get("tax_code_to_id"))
 
-        # Optional: show raw API response for inspection
-        r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
-        if r.status_code == 401:
-            refresh_access_token()
+        # --- v3 endpoint ---
+        st.write("---- v3 /accounting/taxes ----")
+        try:
             r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
-        st.json(r.json())
+            st.write("status v3:", r.status_code)
+            try:
+                st.json(r.json())
+            except Exception:
+                st.write(r.text)
+        except Exception as e:
+            st.write("v3 request error:", str(e))
+
+        # --- v2 endpoint ---
+        st.write("---- v2 /taxes ----")
+        try:
+            r2 = requests.get(f"{API_V2}/taxes", headers=_auth_v2(), timeout=30)
+            st.write("status v2:", r2.status_code)
+            try:
+                st.json(r2.json())
+            except Exception:
+                st.write(r2.text)
+        except Exception as e:
+            st.write("v2 request error:", str(e))
+
 
 
     if submitted:
