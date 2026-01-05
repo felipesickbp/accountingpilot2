@@ -415,17 +415,22 @@ def render_login_page():
         f"""
         <div class="login-wrap">
           <div class="login-title">🤖 Accounting Copilot</div>
-          <div class="login-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
+          <div class="login-sub">
+            Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
+          </div>
 
-          <a class="cta" href="{login_url}" target="_top" rel="noopener noreferrer">
+          <a class="cta" href="{login_url}" target="_blank" rel="noopener noreferrer">
             🔐 Mit bexio anmelden
           </a>
 
-          <div class="small-hint">Tipp: Nach dem Login findest du links Navigation, Reset und Import-Tools.</div>
+          <div class="small-hint">
+            Falls der Button nicht reagiert: <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link öffnen</a>
+          </div>
         </div>
         """,
         unsafe_allow_html=True
     )
+
 
 
 
