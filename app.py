@@ -409,41 +409,26 @@ def make_login_url():
 
 
 def render_login_page():
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    login_url = make_login_url()
 
-    left, mid, right = st.columns([1, 2, 1])
-    with mid:
-        st.markdown("<div class='big-title'>📘 Bexio Bulk Manual Entries</div>", unsafe_allow_html=True)
-        st.markdown(
-            "<div class='subtle'>Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten.</div>",
-            unsafe_allow_html=True
-        )
+    st.markdown(
+        f"""
+        <div class="login-wrap">
+          <div class="login-title">📘 <span>Accounting Pilot</span></div>
+          <div class="login-sub">
+            Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
+          </div>
 
-        st.markdown("")
+          <a class="cta" href="{login_url}" target="_self">🔐 Mit bexio anmelden</a>
 
-        login_url = make_login_url()
+          <div class="small-hint">
+            Tipp: Nach dem Login findest du links Navigation, Reset und Import-Tools.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        # Streamlit has st.link_button in newer versions; fallback to markdown button if needed
-        if hasattr(st, "link_button"):
-            st.link_button("🔐 Mit bexio anmelden", login_url, use_container_width=True)
-        else:
-            st.markdown(
-                f"""
-                <a href="{login_url}" target="_self" style="text-decoration:none;">
-                  <div style="
-                      background:#1f77b4; color:white; padding:12px 14px; 
-                      border-radius:12px; text-align:center; font-weight:600;">
-                      🔐 Mit bexio anmelden
-                  </div>
-                </a>
-                """,
-                unsafe_allow_html=True
-            )
-
-        st.markdown("")
-        st.caption("Tipp: Wenn du eingeloggt bist, findest du links die Navigation und Reset-Funktionen.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def auth_header(token):
