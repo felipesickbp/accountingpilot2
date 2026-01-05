@@ -566,25 +566,28 @@ elif st.session_state.step == 2:
     bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
 
     # NEW: Skip file upload and go straight to an empty grid
-    if st.button("Ohne Datei starten (leere Tabelle)"):
+    if st.button("Ohne Datei starten (leere Tabelle)", key="start_empty_table"):
         df_new = pd.DataFrame({
-            "csv_row":        [1],                             # one starter row so Step 3 opens
+            "csv_row":        [1],                             # keep 1 row so editor shows
             "buchungsnummer": [""],
-            "datum":          [dt_date.today().isoformat()],   # default to today
+            "datum":          [dt_date.today().isoformat()],
             "beschreibung":   [""],
             "betrag":         [0.0],
             "soll":           [""],
             "haben":          [""],
-            "mwst_code":      [""],                            # VAT columns you added
+            "mwst_code":      [""],
             "mwst_konto":     [""],
         })
+    
         st.session_state.bulk_df = ensure_schema(df_new)
-
-        # IMPORTANT: reset data_editor widget state so it takes the new dataframe shape
+    
+        # reset data_editor widget state so it takes the new dataframe
         st.session_state.pop("bulk_grid", None)
-        
-        st.success(f"{len(df_new)} Zeile(n) ins Grid geladen.")
+    
+        # IMPORTANT: move to step 3 so you actually see the editor
+        st.session_state.step = 3
         st.rerun()
+
 
 
     # --- Encoding & Decimal controls (used by the reader) ---
