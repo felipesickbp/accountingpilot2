@@ -579,8 +579,13 @@ elif st.session_state.step == 2:
             "mwst_konto":     [""],
         })
         st.session_state.bulk_df = ensure_schema(df_new)
-        st.session_state.step = 3
+
+        # IMPORTANT: reset data_editor widget state so it takes the new dataframe shape
+        st.session_state.pop("bulk_grid", None)
+        
+        st.success(f"{len(df_new)} Zeile(n) ins Grid geladen.")
         st.rerun()
+
 
     # --- Encoding & Decimal controls (used by the reader) ---
     col_enc1, col_enc2 = st.columns([2, 1])
