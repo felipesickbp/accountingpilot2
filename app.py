@@ -36,6 +36,36 @@ API_V2 = "https://api.bexio.com/2.0"
 SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘", layout="wide")
+def ui_shell():
+    st.markdown(
+        """
+        <style>
+        /* Hide Streamlit default chrome a bit */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {display: none;}
+
+
+        /* General spacing */
+        .block-container { padding-top: 2.0rem; padding-bottom: 2.5rem; }
+
+        /* Card helper */
+        .card {
+            border: 1px solid rgba(49, 51, 63, 0.2);
+            border-radius: 16px;
+            padding: 18px 18px;
+            background: rgba(255,255,255,0.02);
+        }
+        .muted { opacity: 0.8; }
+        .big-title { font-size: 2.0rem; font-weight: 700; margin: 0 0 0.3rem 0; }
+        .subtle { opacity: 0.85; margin-top: 0.2rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+ui_shell()
+
 
 # =========================
 # THEME CSS (optional)
@@ -330,9 +360,92 @@ if "bulk_df" not in st.session_state:
 DEFAULT_CURRENCY_ID = 1
 DEFAULT_CURRENCY_FACTOR = 1.0
 
+
+# =========================
+# SIDEBAR NAV
+# =========================
+STEP_LABELS = {
+    1: "1) Kontenplan",
+    2: "2) Bankdatei",
+    3: "3) Kontrolle & Import",
+}
+
+def sidebar_nav():
+    st.sidebar.markdown("### Navigation")
+    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
+    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
+
+    chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
+
+    new_step = {v: k for k, v in STEP_LABELS.items()}[chosen]
+    if new_step != st.session_state.step:
+        st.session_state.step = new_step
+        st.rerun()
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
+        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
+                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.session_state.step = 1
+        st.rerun()
+
+
 # =========================
 # AUTH HELPERS
 # =========================
+
+def make_login_url():
+    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
+    params = {
+        "client_id": BEXIO_CLIENT_ID,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": state,
+    }
+    return f"{AUTH_URL}?{urlencode(params)}"
+
+
+def render_login_page():
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+    left, mid, right = st.columns([1, 2, 1])
+    with mid:
+        st.markdown("<div class='big-title'>📘 Bexio Bulk Manual Entries</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='subtle'>Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten.</div>",
+            unsafe_allow_html=True
+        )
+
+        st.markdown("")
+
+        login_url = make_login_url()
+
+        # Streamlit has st.link_button in newer versions; fallback to markdown button if needed
+        if hasattr(st, "link_button"):
+            st.link_button("🔐 Mit bexio anmelden", login_url, use_container_width=True)
+        else:
+            st.markdown(
+                f"""
+                <a href="{login_url}" target="_self" style="text-decoration:none;">
+                  <div style="
+                      background:#1f77b4; color:white; padding:12px 14px; 
+                      border-radius:12px; text-align:center; font-weight:600;">
+                      🔐 Mit bexio anmelden
+                  </div>
+                </a>
+                """,
+                unsafe_allow_html=True
+            )
+
+        st.markdown("")
+        st.caption("Tipp: Wenn du eingeloggt bist, findest du links die Navigation und Reset-Funktionen.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def auth_header(token):
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
@@ -460,31 +573,23 @@ def fetch_all_accounts_v2(limit=2000):
     return rows
 
 # =========================
-# LAYOUT: HEADER + WIZARD NAV
+# LAYOUT: HEADER + NAV
 # =========================
-st.title("📘 Bexio Bulk Manual Entries")
 handle_callback()
+
 if need_login():
-    st.info("Verbinde dein bexio Konto, um Buchungen zu posten.")
-    login_link()
+    render_login_page()
     st.stop()
+
 if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
 
-col_nav1, col_nav2, col_nav3, col_reset = st.columns([1,1,1,1])
-col_nav1.button("1) Kontenplan", on_click=lambda: st.session_state.update(step=1))
-col_nav2.button("2) Bankdatei", on_click=lambda: st.session_state.update(step=2))
-col_nav3.button("3) Kontrolle & Import", on_click=lambda: st.session_state.update(step=3))
-if col_reset.button("🔁 Assistent zurücksetzen"):
-    for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-              "bank_csv_view_df","bulk_df","bank_map","bank_start_row"]:
-        if k in st.session_state:
-            del st.session_state[k]
-    st.session_state.step = 1
-    st.rerun()
-
+st.title("📘 Bexio Bulk Manual Entries")
+sidebar_nav()
 st.markdown("---")
+
+
 
 # =========================
 # STEP 1 — KONTENPLAN
