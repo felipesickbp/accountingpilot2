@@ -812,7 +812,7 @@ elif st.session_state.step == 3:
         )
         colA, colB = st.columns(2)
         auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
-        submitted  = colB.form_submit_button("Buchungen posten", type="primary")
+        submitted  = colB.form_submit_button("Buchungen posten 🤖", type="primary")
 
     # merge edited values back
     st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
