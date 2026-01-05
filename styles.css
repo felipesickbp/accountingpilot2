@@ -17,6 +17,16 @@
 /* --- Layout spacing --- */
 .block-container { padding-top: 3rem; }
 
+/* Center container for the whole login view */
+.login-center {
+  min-height: calc(100vh - 6rem); /* adjust if your top padding differs */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+
 /* --- Login card --- */
 .login-wrap {
   max-width: 560px;
