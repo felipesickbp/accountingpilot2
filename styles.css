@@ -44,6 +44,17 @@
   margin: 0 0 .25rem 0;
 }
 
+.login-page {
+  min-height: calc(100vh - 6rem); /* adjust if you have big padding */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-wrap {
+  width: min(560px, 92vw);
+}
+
 .login-sub {
   opacity: .8;
   margin: 0 0 1.2rem 0;
