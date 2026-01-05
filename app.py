@@ -902,7 +902,7 @@ elif st.session_state.step == 3:
         return st.session_state.get("tax_code_to_id", {}).get(code)
 
         # === DEBUG BUTTON: raw JSON for today's manual entries ===
-    if st.button("Debug: raw JSON for today's entries"):
+    if st.button("Debug: raw JSON for today's entries- Peace"):
         try:
             r = requests.get(
                 MANUAL_ENTRIES_V3,
