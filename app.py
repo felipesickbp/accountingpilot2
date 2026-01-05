@@ -35,7 +35,7 @@ API_V2 = "https://api.bexio.com/2.0"
 
 SCOPES = "openid profile email offline_access company_profile"
 
-st.set_page_config(page_title="bexio Bulk Manual Entries (v3)", page_icon="📘", layout="wide")
+st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
 def ui_shell():
     st.markdown(
         """
@@ -570,7 +570,7 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
 
-st.title("📘 Bexio Bulk Manual Entries")
+st.title("Accounting Copilot")
 sidebar_nav()
 st.markdown("---")
 
