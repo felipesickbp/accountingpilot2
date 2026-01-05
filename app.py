@@ -420,14 +420,13 @@ def render_login_page():
               Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
             </div>
 
-            <!-- IMPORTANT: _blank avoids iframe/top-nav issues -->
             <a class="cta" href="{login_url}" target="_blank" rel="noopener noreferrer">
               🔐 Mit bexio anmelden
             </a>
 
             <div class="small-hint">
-              Falls du die App in Teams/SharePoint/iframe geöffnet hast: bitte in einem normalen Browser-Tab öffnen.
-              Alternativ: <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link öffnen</a>
+              Falls du die App eingebettet geöffnet hast (Teams/SharePoint): 
+              <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link in neuem Tab öffnen</a>
             </div>
           </div>
         </div>
