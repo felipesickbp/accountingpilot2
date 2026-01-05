@@ -752,6 +752,46 @@ elif st.session_state.step == 3:
     # --- Editable grid (inkl. MWST) ---
     EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben", "mwst_code", "mwst_konto"]
 
+    with st.expander("📋 Mehrere Zeilen einfügen (Excel/TSV)", expanded=True):
+        paste_text = st.text_area(
+            "Füge hier Zeilen ein (Tab-getrennt aus Excel). Erwartet Spalten:\n"
+            "datum, beschreibung, betrag, soll, haben, mwst_code(optional), mwst_konto(optional)",
+            height=180,
+            key="paste_tsv"
+        )
+
+    if st.button("➡️ Eingefügte Zeilen ins Grid laden", key="load_paste_btn"):
+        txt = (paste_text or "").strip()
+        if not txt:
+            st.warning("Kein Text eingefügt.")
+        else:
+            # Detect separator (tabs from Excel; fallback to 2+ spaces)
+            if "\t" in txt:
+                df_p = pd.read_csv(io.StringIO(txt), sep="\t", header=None, dtype=str, keep_default_na=False)
+            else:
+                df_p = pd.read_csv(io.StringIO(txt), sep=r"\s{2,}", engine="python",
+                                   header=None, dtype=str, keep_default_na=False)
+
+            if df_p.shape[1] < 5:
+                st.error(f"Zu wenige Spalten erkannt ({df_p.shape[1]}).")
+            else:
+                df_new = pd.DataFrame({
+                    "csv_row":        range(1, len(df_p) + 1),
+                    "buchungsnummer": "",
+                    "datum":          df_p[0].apply(_parse_date_to_iso),
+                    "beschreibung":   df_p[1].astype(str),
+                    "betrag":         df_p[2].apply(_to_float).abs(),
+                    "soll":           df_p[3].astype(str),
+                    "haben":          df_p[4].astype(str),
+                    "mwst_code":      df_p[5].astype(str) if df_p.shape[1] > 5 else "",
+                    "mwst_konto":     df_p[6].astype(str) if df_p.shape[1] > 6 else "",
+                })
+
+                st.session_state.bulk_df = ensure_schema(df_new)
+                st.success(f"{len(df_new)} Zeile(n) ins Grid geladen.")
+                st.rerun()
+
+
     with st.form("bulk_entries_form", clear_on_submit=False):
         edited_view = st.data_editor(
             st.session_state.bulk_df[EDIT_COLS],
