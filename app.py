@@ -3,8 +3,6 @@ import pandas as pd
 import streamlit as st
 import requests
 import math, random
-import streamlit.components.v1 as components
-import textwrap
 from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
@@ -413,30 +411,25 @@ def make_login_url():
 def render_login_page():
     login_url = make_login_url()
 
-    components.html(
+    st.markdown(
         f"""
-        <div class="login-page">
-          <div class="login-wrap">
-            <div class="login-title">🤖 Accounting Copilot</div>
-            <div class="login-sub">
-              Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
-            </div>
+        <div class="login-wrap">
+          <div class="login-title">🤖 Accounting Copilot</div>
+          <div class="login-sub">
+            Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
+          </div>
 
-            <a class="cta" href="{login_url}" target="_self" rel="noopener noreferrer">
-              🔐 Mit bexio anmelden
-            </a>
+          <a class="cta" href="{login_url}" target="_blank" rel="noopener noreferrer">
+            🔐 Mit bexio anmelden
+          </a>
 
-            <div class="small-hint">
-              Falls du die App eingebettet geöffnet hast (Teams/SharePoint):
-              <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link in neuem Tab öffnen</a>
-            </div>
+          <div class="small-hint">
+            Falls der Button nicht reagiert: <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link öffnen</a>
           </div>
         </div>
         """,
-        height=420,
+        unsafe_allow_html=True
     )
-
-    st.markdown(html, unsafe_allow_html=True)
 
 
 
