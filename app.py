@@ -36,6 +36,7 @@ API_V2 = "https://api.bexio.com/2.0"
 SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
+
 def ui_shell():
     st.markdown(
         """
@@ -44,7 +45,6 @@ def ui_shell():
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {display: none;}
-
 
         /* General spacing */
         .block-container { padding-top: 2.0rem; padding-bottom: 2.5rem; }
@@ -66,7 +66,6 @@ def ui_shell():
 
 ui_shell()
 
-
 # =========================
 # THEME CSS (optional)
 # =========================
@@ -76,11 +75,85 @@ def _inject_local_css(file_path: str = "styles.css"):
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except Exception:
         pass
+
 _inject_local_css()
 
 # =========================
 # SCHEMA & HELPERS
 # =========================
+
+def _ensure_currency_code_map():
+    if st.session_state.get("currency_code_to_id"):
+        return
+
+    mp = {}
+
+    def _ingest(items):
+        for c in items or []:
+            try:
+                cid = int(c.get("id"))
+            except Exception:
+                continue
+
+            # bexio currency create uses field 'name' like 'JPY' (ISO) in many clients
+            code = (
+                c.get("name")
+                or c.get("code")
+                or c.get("currency_code")
+                or c.get("short_name")
+            )
+            if code:
+                mp.setdefault(str(code).upper().strip(), cid)
+
+    endpoints = [
+        f"{API_V3}/currencies",
+        f"{API_V3}/accounting/currencies",
+        f"{API_V2}/currencies",
+    ]
+
+    for url in endpoints:
+        try:
+            r = requests.get(url, headers=_auth() if "/3.0" in url else _auth_v2(), timeout=30)
+            if r.status_code == 401:
+                refresh_access_token()
+                r = requests.get(url, headers=_auth() if "/3.0" in url else _auth_v2(), timeout=30)
+            if r.status_code < 400:
+                data = r.json()
+                if isinstance(data, list):
+                    _ingest(data)
+                if mp:
+                    break
+        except Exception:
+            pass
+
+    st.session_state.currency_code_to_id = mp
+
+
+def _currency_id_from_input(val: str | int | None) -> int | None:
+    s = ("" if val is None else str(val)).strip()
+    if not s:
+        return int(DEFAULT_CURRENCY_ID)
+
+    # numeric currency_id allowed
+    try:
+        return int(float(s))
+    except Exception:
+        pass
+
+    code = s.upper()
+
+    # env override: BEXIO_CURRENCY_ID_EUR=2, etc.
+    env_key = f"BEXIO_CURRENCY_ID_{code}"
+    env_val = os.getenv(env_key)
+    if env_val:
+        try:
+            return int(env_val)
+        except Exception:
+            pass
+
+    _ensure_currency_code_map()
+    return st.session_state.get("currency_code_to_id", {}).get(code)
+
 
 # VAT helpers and defaults
 VAT_CODE_TO_RATE = {
@@ -110,7 +183,8 @@ def _parse_vat_rate(val) -> float | None:
 # Extended schema: add the two new columns at the END (as requested)
 REQUIRED_COLS = [
     "csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung",
-    "mwst_code", "mwst_konto"
+    "mwst_code", "mwst_konto",
+    "currency", "exchange_rate",
 ]
 
 def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
@@ -119,16 +193,24 @@ def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
     df = pd.DataFrame(columns=REQUIRED_COLS)
     for c in REQUIRED_COLS:
         df[c] = df_in[c] if c in df_in.columns else ""
+
     # dtypes that play nicely with st.data_editor
     try:
         df["csv_row"] = pd.to_numeric(df["csv_row"], errors="coerce").astype("Int64")
     except Exception:
-        df["csv_row"] = pd.Series([pd.NA]*len(df), dtype="Int64")
+        df["csv_row"] = pd.Series([pd.NA] * len(df), dtype="Int64")
+
     df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
+
+    # NEW
+    df["exchange_rate"] = pd.to_numeric(df["exchange_rate"], errors="coerce").astype(float)
+    df["currency"] = df["currency"].replace({None: ""}).fillna("").astype(str)
+
     for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung", "mwst_code", "mwst_konto"]:
         df[c] = df[c].replace({None: ""}).fillna("")
         df[c] = df[c].astype(str)
         df[c] = df[c].replace({"None": "", "nan": "", "<NA>": ""})
+
     return df
 
 
@@ -144,7 +226,7 @@ def _parse_date_to_iso(x: str) -> str:
 def _to_float(x) -> float:
     if x is None:
         return 0.0
-    s = str(x).strip().replace("’","").replace("'","")
+    s = str(x).strip().replace("’", "").replace("'", "")
     try:
         return float(s.replace(" ", "").replace(",", "."))
     except Exception:
@@ -174,8 +256,6 @@ def resolve_account_id_from_number_or_id(val):
             pass
 
     # Normalize possible kontonummer formats
-    # - drop everything after a dash (e.g. "1020-A" -> "1020")
-    # - remove spaces / thousands-separators ' and ’
     norm = raw.split("-", 1)[0]
     norm = norm.replace("’", "").replace("'", "").replace(" ", "")
 
@@ -203,16 +283,16 @@ def post_with_backoff(url, headers, payload, max_retries=5, base_sleep=0.8):
 
         if r.status_code < 400:
             return True, r
+
         if r.status_code not in (429, 500, 502, 503, 504) or attempt == max_retries:
-            # Give up
             try:
                 return False, f"HTTP {r.status_code}: {r.text}"
             except Exception:
                 return False, f"HTTP {r.status_code}"
 
-        # Retry with jitter
         sleep_s = base_sleep * (2 ** attempt) + random.uniform(0, 0.25)
         time.sleep(sleep_s)
+
     return False, "Max retries exceeded"
 
 def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFrame:
@@ -220,7 +300,6 @@ def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFra
     if df is None or df.empty or not rules:
         return df
     out = df.copy()
-    # normalize columns we touch
     for col in ["beschreibung", "soll", "haben"]:
         if col not in out.columns:
             out[col] = ""
@@ -231,7 +310,7 @@ def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFra
     for r in rules:
         kw = str(r.get("keyword", "")).strip()
         acct = str(r.get("account", "")).strip()
-        side = str(r.get("side", "haben")).strip().lower()  # "soll" | "haben" | "auto"
+        side = str(r.get("side", "haben")).strip().lower()
         if not kw or not acct:
             continue
 
@@ -244,7 +323,6 @@ def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFra
             empty = out["haben"].str.strip() == ""
             out.loc[mask_kw & empty, "haben"] = acct
         else:
-            # auto by sign: +amount -> soll, -amount -> haben
             empty_s = out["soll"].str.strip() == ""
             empty_h = out["haben"].str.strip() == ""
             out.loc[mask_kw & (amt > 0) & empty_s, "soll"] = acct
@@ -298,7 +376,6 @@ def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> 
 
     for enc in encodings:
         for sep in delimiters:
-            # Try with header row
             try:
                 df = pd.read_csv(
                     io.BytesIO(raw),
@@ -313,7 +390,6 @@ def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> 
             except Exception as e:
                 errors.append(f"header=0 {enc}/{repr(sep)} → {e}")
 
-            # Fallback: no header
             try:
                 df = pd.read_csv(
                     io.BytesIO(raw),
@@ -357,9 +433,9 @@ if "bank_map" not in st.session_state:
 if "bulk_df" not in st.session_state:
     st.session_state.bulk_df = None
 
+DEFAULT_CURRENCY_CODE = "CHF"
 DEFAULT_CURRENCY_ID = 1
 DEFAULT_CURRENCY_FACTOR = 1.0
-
 
 # =========================
 # SIDEBAR NAV
@@ -391,11 +467,9 @@ def sidebar_nav():
         st.session_state.step = 1
         st.rerun()
 
-
 # =========================
 # AUTH HELPERS
 # =========================
-
 def make_login_url():
     state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
     params = {
@@ -407,10 +481,8 @@ def make_login_url():
     }
     return f"{AUTH_URL}?{urlencode(params)}"
 
-
 def render_login_page():
     login_url = make_login_url()
-
     st.markdown(
         f"""
         <div class="login-wrap">
@@ -430,9 +502,6 @@ def render_login_page():
         """,
         unsafe_allow_html=True
     )
-
-
-
 
 def auth_header(token):
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -471,7 +540,6 @@ def login_link():
     st.markdown(f"[Sign in with bexio]({url})")
 
 def handle_callback():
-    # In recent Streamlit versions, st.query_params acts like a dict.
     qp = st.query_params
     code = qp.get("code")
     if not code:
@@ -489,13 +557,10 @@ def handle_callback():
         r = requests.post(TOKEN_URL, data=data, timeout=30)
     except requests.RequestException as e:
         st.error(f"Token request failed to send: {e}")
-        # Clear the URL so we don’t loop on every rerun
         st.query_params.clear()
         st.stop()
 
-    # If Bexio rejects the request, show the real error body
     if r.status_code >= 400:
-        # Try to show JSON; else show text
         try:
             body = r.json()
         except Exception:
@@ -506,7 +571,6 @@ def handle_callback():
             f"Response:\n{body}"
         )
 
-        # Helpful hints (most common causes)
         with st.expander("Troubleshooting tips", expanded=True):
             st.markdown(
                 "- **Redirect URI mismatch**: `BEXIO_REDIRECT_URI` must match **exactly** what’s configured in Bexio (scheme, host, path).\n"
@@ -516,11 +580,9 @@ def handle_callback():
                 "- **Scope issues**: The requested `SCOPES` must be allowed for your app."
             )
 
-        # Clear query params so we don’t keep failing on rerun
         st.query_params.clear()
         st.stop()
 
-    # Success
     try:
         save_tokens(r.json())
     except Exception as e:
@@ -528,16 +590,17 @@ def handle_callback():
         st.query_params.clear()
         st.stop()
 
-    # Clean URL bar
     st.query_params.clear()
 
 def _auth():
     return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
 
 def _auth_v2():
-    return {**auth_header(st.session_state.oauth["access_token"]),
-            "Accept": "application/json",
-            "Content-Type": "application/json"}
+    return {
+        **auth_header(st.session_state.oauth["access_token"]),
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
 
 # =========================
 # API HELPERS
@@ -577,8 +640,6 @@ st.title("Accounting Copilot")
 sidebar_nav()
 st.markdown("---")
 
-
-
 # =========================
 # STEP 1 — KONTENPLAN
 # =========================
@@ -600,12 +661,14 @@ if st.session_state.step == 1:
                     "type": a.get("account_type"),
                     "active": a.get("is_active"),
                 } for a in accs]).sort_values(["number", "id"], na_position="last")
+
                 mp = {}
                 for _, r in df.iterrows():
                     n = str(r["number"]).strip() if pd.notna(r["number"]) else None
                     i = int(r["id"]) if pd.notna(r["id"]) else None
                     if n and i:
                         mp[n] = i
+
                 st.session_state.acct_map_by_number = mp
                 st.session_state.acct_df = df
                 st.success(f"{len(df)} Konten importiert.")
@@ -658,34 +721,29 @@ elif st.session_state.step == 2:
 
     bank_file = st.file_uploader(
         "Bankdatei hochladen (CSV/Excel)",
-        type=["csv", "xlsx", "xls"]  # xls optional
+        type=["csv", "xlsx", "xls"]
     )
-
 
     # NEW: Skip file upload and go straight to an empty grid
     if st.button("Ohne Datei starten (leere Tabelle)", key="start_empty_table"):
         df_new = pd.DataFrame({
-            "csv_row":        [1],                             # keep 1 row so editor shows
+            "csv_row":        [1],
             "buchungsnummer": [""],
             "datum":          [dt_date.today().isoformat()],
             "beschreibung":   [""],
             "betrag":         [0.0],
+            "currency":       [DEFAULT_CURRENCY_CODE],
+            "exchange_rate":  [1.0],
             "soll":           [""],
             "haben":          [""],
             "mwst_code":      [""],
             "mwst_konto":     [""],
         })
-    
+
         st.session_state.bulk_df = ensure_schema(df_new)
-    
-        # reset data_editor widget state so it takes the new dataframe
         st.session_state.pop("bulk_grid", None)
-    
-        # IMPORTANT: move to step 3 so you actually see the editor
         st.session_state.step = 3
         st.rerun()
-
-
 
     # --- Encoding & Decimal controls (used by the reader) ---
     col_enc1, col_enc2 = st.columns([2, 1])
@@ -695,7 +753,6 @@ elif st.session_state.step == 2:
         index=0,
     )
     decimal_choice = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
-
 
     # --- robust read + preview ---
     if bank_file is not None:
@@ -715,11 +772,10 @@ elif st.session_state.step == 2:
             if start_idx >= len(df_src):
                 raise ValueError("Startzeile liegt hinter dem Dateiende.")
 
-            # Build safe view and reserve our own csv_row
             df_view = df_src.iloc[start_idx:].copy()
             if "csv_row" in df_view.columns:
                 df_view = df_view.rename(columns={"csv_row": "csv_row_file"})
-            df_view.insert(0, "csv_row", df_view.index + 1)  # 1-based original row no. from file
+            df_view.insert(0, "csv_row", df_view.index + 1)
             df_view = df_view.reset_index(drop=True)
 
             st.session_state.bank_csv_view_df = df_view
@@ -733,11 +789,9 @@ elif st.session_state.step == 2:
 
     src_for_mapping = st.session_state.get("bank_csv_view_df", None)
 
-    # --- mapping UI only when we truly have rows ---
     if isinstance(src_for_mapping, pd.DataFrame) and not src_for_mapping.empty:
         st.subheader("Spalten zuordnen (CSV → Bexio-Felder)")
 
-        # Only these are mapped by the user (exclude our synthetic csv_row)
         cols = ["<keine>"] + [c for c in src_for_mapping.columns if c != "csv_row"]
 
         c1, c2 = st.columns(2)
@@ -747,7 +801,6 @@ elif st.session_state.step == 2:
         c3, _ = st.columns([2, 1])
         st.session_state.bank_map["beschreibung"] = c3.selectbox("beschreibung (Beschreibung / Text)", options=cols, index=0)
 
-        # Safe picker: always returns a Series aligned to src_for_mapping
         def pick(key: str) -> pd.Series:
             sel = st.session_state.bank_map.get(key)
             if sel and sel in src_for_mapping.columns:
@@ -757,44 +810,38 @@ elif st.session_state.step == 2:
         def convert_to_grid_and_advance():
             src = src_for_mapping
             df_new = pd.DataFrame({
-                "csv_row":        src["csv_row"],                        # traceability
-                "buchungsnummer": "",                                    # left blank (auto-ref later)
+                "csv_row":        src["csv_row"],
+                "buchungsnummer": "",
                 "datum":          pick("datum").apply(_parse_date_to_iso),
                 "beschreibung":   pick("beschreibung").astype(str),
                 "betrag":         pick("betrag").apply(_to_float),
-                "soll":           "",                                    # auto-fill by bank/sign if set
+                "currency":       DEFAULT_CURRENCY_CODE,
+                "exchange_rate":  1.0,
+                "soll":           "",
                 "haben":          "",
-                # NEW VAT columns (empty by default; editable in Step 3)
                 "mwst_code":      "",
                 "mwst_konto":     "",
             })
 
-
-            # Default date if parsing failed everywhere
             if (df_new["datum"] == "").all():
                 df_new["datum"] = dt_date.today().isoformat()
 
-            # Assign selected bank account to soll/haben by sign (only if empty in target)
             if st.session_state.selected_bank_number:
                 pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
                 neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
                 df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
                 df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
 
-            # Amount must be positive in UI/API; side is defined by debit/credit
             df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce").abs()
 
-            # Normalize for editor stability
             st.session_state.bulk_df = ensure_schema(df_new)
-
-            # Advance to step 3
+            st.session_state.pop("bulk_grid", None)
             st.session_state.step = 3
             st.rerun()
 
         st.button("Weiter → 3) Kontrolle & Import", type="primary", on_click=convert_to_grid_and_advance)
     else:
         st.info("Lade eine Datei und wähle eine gültige Startzeile, um fortzufahren.")
-
 
 # =========================
 # STEP 3 — KONTROLLE & IMPORT
@@ -806,12 +853,11 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
-   
     # --- Keyword → Konto rules (persist in session) ---
     if "keyword_rules" not in st.session_state:
         st.session_state.keyword_rules = [
-            {"keyword": "Polizei",        "account": "2100", "side": "haben"},
-            {"keyword": "Bancomatbezug",  "account": "1000", "side": "auto"},
+            {"keyword": "Polizei",       "account": "2100", "side": "haben"},
+            {"keyword": "Bancomatbezug", "account": "1000", "side": "auto"},
         ]
     if "show_kw_rules" not in st.session_state:
         st.session_state.show_kw_rules = False
@@ -829,7 +875,8 @@ elif st.session_state.step == 3:
 
             def _normalize_side(s: str) -> str:
                 s = (s or "").lower()
-                if s.startswith("auto"): return "auto"
+                if s.startswith("auto"):
+                    return "auto"
                 return "soll" if s == "soll" else "haben"
 
             if k4.button("➕ Regel hinzufügen", key="kw_add_btn"):
@@ -855,47 +902,127 @@ elif st.session_state.step == 3:
                 st.rerun()
 
     # --- Editable grid (inkl. MWST) ---
-    EDIT_COLS = ["buchungsnummer", "datum", "beschreibung", "betrag", "soll", "haben", "mwst_code", "mwst_konto"]
+    EDIT_COLS = [
+        "buchungsnummer", "datum", "beschreibung",
+        "betrag", "currency", "exchange_rate",
+        "soll", "haben",
+        "mwst_code", "mwst_konto",
+    ]
 
     with st.expander("📋 Mehrere Zeilen einfügen (Excel/TSV)", expanded=True):
         paste_text = st.text_area(
             "Füge hier Zeilen ein (Tab-getrennt aus Excel). Erwartet Spalten:\n"
-            "datum, beschreibung, betrag, soll, haben, mwst_code(optional), mwst_konto(optional)",
+            "datum, beschreibung, betrag, currency(optional), exchange_rate(optional), soll, haben, mwst_code(optional), mwst_konto(optional)",
             height=180,
             key="paste_tsv"
         )
 
+    # ✅ FIXED: indentation + multicurrency detection that won't confuse account numbers with currency/rate
     if st.button("➡️ Eingefügte Zeilen ins Grid laden", key="load_paste_btn"):
         txt = (paste_text or "").strip()
         if not txt:
             st.warning("Kein Text eingefügt.")
         else:
-            # Detect separator (tabs from Excel; fallback to 2+ spaces)
             if "\t" in txt:
                 df_p = pd.read_csv(io.StringIO(txt), sep="\t", header=None, dtype=str, keep_default_na=False)
             else:
-                df_p = pd.read_csv(io.StringIO(txt), sep=r"\s{2,}", engine="python",
-                                   header=None, dtype=str, keep_default_na=False)
+                df_p = pd.read_csv(
+                    io.StringIO(txt),
+                    sep=r"\s{2,}",
+                    engine="python",
+                    header=None,
+                    dtype=str,
+                    keep_default_na=False
+                )
 
             if df_p.shape[1] < 5:
                 st.error(f"Zu wenige Spalten erkannt ({df_p.shape[1]}).")
-            else:
-                df_new = pd.DataFrame({
-                    "csv_row":        range(1, len(df_p) + 1),
-                    "buchungsnummer": "",
-                    "datum":          df_p[0].apply(_parse_date_to_iso),
-                    "beschreibung":   df_p[1].astype(str),
-                    "betrag":         df_p[2].apply(_to_float).abs(),
-                    "soll":           df_p[3].astype(str),
-                    "haben":          df_p[4].astype(str),
-                    "mwst_code":      df_p[5].astype(str) if df_p.shape[1] > 5 else "",
-                    "mwst_konto":     df_p[6].astype(str) if df_p.shape[1] > 6 else "",
-                })
+                st.stop()
 
-                st.session_state.bulk_df = ensure_schema(df_new)
-                st.success(f"{len(df_new)} Zeile(n) ins Grid geladen.")
-                st.rerun()
+            n = df_p.shape[1]
 
+            # defaults: date, desc, amount, soll, haben, (optional) mwst_code, mwst_konto
+            currency_col = None
+            rate_col = None
+            soll_col = 3
+            haben_col = 4
+            mwst_code_col = 5
+            mwst_konto_col = 6
+
+            def _looks_like_ccy(x) -> bool:
+                s = str(x).strip().upper()
+                if len(s) == 3 and s.isalpha():
+                    return True
+                if s.isdigit():
+                    # currency_id typically small; prevent false positives on account numbers like 1020/2000
+                    try:
+                        v = int(s)
+                        return 1 <= v <= 999
+                    except Exception:
+                        return False
+                return False
+
+            def _looks_like_rate(x) -> bool:
+                try:
+                    v = float(str(x).strip().replace(",", "."))
+                    return 0 < v < 200
+                except Exception:
+                    return False
+
+            def _looks_like_account(x) -> bool:
+                s = str(x).strip().replace("’", "").replace("'", "").replace(" ", "")
+                s = s.split("-", 1)[0]
+                return s.isdigit() and 1 <= int(s) <= 999999
+
+            # Detect multicurrency safely (7-col multicurrency OR 9-col multicurrency+VAT)
+            is_multicurrency = False
+            if n >= 7:
+                df_probe = df_p.replace("", pd.NA).dropna(how="all")
+                if len(df_probe) > 0:
+                    ccy = df_probe.iloc[0, 3]
+                    rate = df_probe.iloc[0, 4]
+                    soll_candidate = df_probe.iloc[0, 5] if n > 5 else ""
+                    haben_candidate = df_probe.iloc[0, 6] if n > 6 else ""
+                    is_multicurrency = (
+                        _looks_like_ccy(ccy)
+                        and _looks_like_rate(rate)
+                        and _looks_like_account(soll_candidate)
+                        and _looks_like_account(haben_candidate)
+                    )
+
+            if is_multicurrency:
+                currency_col = 3
+                rate_col = 4
+                soll_col = 5
+                haben_col = 6
+                mwst_code_col = 7
+                mwst_konto_col = 8
+
+            if df_p.shape[1] <= max(soll_col, haben_col):
+                st.error(
+                    f"Paste-Format passt nicht: soll/haben Spalten fehlen "
+                    f"(erkannt: {df_p.shape[1]} Spalten)."
+                )
+                st.stop()
+
+            df_new = pd.DataFrame({
+                "csv_row":        range(1, len(df_p) + 1),
+                "buchungsnummer": "",
+                "datum":          df_p[0].apply(_parse_date_to_iso),
+                "beschreibung":   df_p[1].astype(str),
+                "betrag":         df_p[2].apply(_to_float).abs(),
+                "currency":       df_p[currency_col].astype(str) if (currency_col is not None and df_p.shape[1] > currency_col) else DEFAULT_CURRENCY_CODE,
+                "exchange_rate":  df_p[rate_col].apply(_to_float) if (rate_col is not None and df_p.shape[1] > rate_col) else 1.0,
+                "soll":           df_p[soll_col].astype(str),
+                "haben":          df_p[haben_col].astype(str),
+                "mwst_code":      df_p[mwst_code_col].astype(str) if df_p.shape[1] > mwst_code_col else "",
+                "mwst_konto":     df_p[mwst_konto_col].astype(str) if df_p.shape[1] > mwst_konto_col else "",
+            })
+
+            st.session_state.bulk_df = ensure_schema(df_new)
+            st.session_state.pop("bulk_grid", None)
+            st.success(f"{len(df_new)} Zeile(n) ins Grid geladen.")
+            st.rerun()
 
     with st.form("bulk_entries_form", clear_on_submit=False):
         edited_view = st.data_editor(
@@ -909,6 +1036,8 @@ elif st.session_state.step == 3:
                 "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
                 "beschreibung":   st.column_config.TextColumn("label / description"),
                 "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
+                "currency":       st.column_config.TextColumn("currency (ISO like CHF/EUR or currency_id)"),
+                "exchange_rate":  st.column_config.NumberColumn("exchange rate (currency_factor)", min_value=0.0, step=0.0001, format="%.6f"),
                 "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
                 "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
                 "mwst_code":      st.column_config.TextColumn("MWST code (UN81 / VM81 / VB81)"),
@@ -921,16 +1050,14 @@ elif st.session_state.step == 3:
 
     # merge edited values back
     st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
-    
+
     # Sanitize editor artifacts
     st.session_state.bulk_df[EDIT_COLS] = (
         st.session_state.bulk_df[EDIT_COLS]
           .replace({None: "", "None": "", "nan": "", "NaN": "", "<NA>": ""})
           .fillna("")
     )
-    
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
-
 
     # ---------- batching controls ----------
     colC, colD = st.columns(2)
@@ -938,11 +1065,11 @@ elif st.session_state.step == 3:
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
     # ---------------------------------------
 
-     # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
+    # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
     VAT_CODE_TO_LEDGER = {
-        "VM81": "1170",  # input VAT
-        "UN81": "2200",  # output VAT
-        "VB81": "1171",  # input VAT (Inv./BA)
+        "VM81": "1170",
+        "UN81": "2200",
+        "VB81": "1171",
     }
 
     # ---- tax-code → tax_id mapper (v3 then v2; scans names/labels; semantic fallback) ----
@@ -956,6 +1083,7 @@ elif st.session_state.step == 3:
                     tid = int(t.get("id"))
                 except Exception:
                     continue
+
                 parts = []
                 for k in ("code", "abbreviation", "short_name", "key", "name", "label"):
                     v = t.get(k)
@@ -967,7 +1095,6 @@ elif st.session_state.step == 3:
                     if token in joined_upper:
                         mp.setdefault(token, tid)
 
-                # rate-based inference (8.1%)
                 rate_val = None
                 for k in ("rate", "tax_rate", "percent", "value"):
                     if t.get(k) is not None:
@@ -979,7 +1106,7 @@ elif st.session_state.step == 3:
                 if rate_val is not None and rate_val > 1.0:
                     rate_val = rate_val / 100.0
 
-                def _near_81(x): 
+                def _near_81(x):
                     return (x is not None) and (abs(x - 0.081) < 0.002)
 
                 if _near_81(rate_val):
@@ -989,6 +1116,7 @@ elif st.session_state.step == 3:
                         mp.setdefault("VM81", tid)
                     if ("INV/BA" in joined_upper or " INV " in joined_upper or " BA " in joined_upper) and "VB81" not in mp:
                         mp.setdefault("VB81", tid)
+
             return mp
 
         mp = {}
@@ -1021,32 +1149,22 @@ elif st.session_state.step == 3:
         st.session_state.tax_code_to_id = mp
 
     def _tax_id_from_code(code_str: str) -> int | None:
-        """
-        Resolve a VAT code like 'VB81' to a numeric tax_id.
-
-        1) First check env override: BEXIO_TAX_ID_<CODE>, e.g. BEXIO_TAX_ID_VB81=1234
-        2) Then (best effort) use the cached map from _ensure_tax_code_map()
-           – in your setup this will stay empty because both tax endpoints 404.
-        """
         code = (code_str or "").upper().strip()
         if not code:
             return None
 
-        # 1) ENV override, e.g. BEXIO_TAX_ID_VB81
         env_key = f"BEXIO_TAX_ID_{code}"
         env_val = os.getenv(env_key)
         if env_val:
             try:
                 return int(env_val)
             except ValueError:
-                # if misconfigured, ignore and fall back
                 pass
 
-        # 2) Fallback to API-based map (will be empty for you because taxes endpoints 404)
         _ensure_tax_code_map()
         return st.session_state.get("tax_code_to_id", {}).get(code)
 
-        # === DEBUG BUTTON: raw JSON for today's manual entries ===
+    # === DEBUG BUTTON: raw JSON for today's manual entries ===
     if st.button("Debug: raw JSON for today's entries- Peace"):
         try:
             r = requests.get(
@@ -1062,7 +1180,6 @@ elif st.session_state.step == 3:
                 today_str = dt_date.today().isoformat()
                 st.write("Heute:", today_str)
 
-                # Filter for today's entries
                 todays_entries = [e for e in data if e.get("date") == today_str]
 
                 if not todays_entries:
@@ -1076,17 +1193,13 @@ elif st.session_state.step == 3:
         except Exception as e:
             st.write("manual_entries raw-json error:", str(e))
 
-
-   
-
-
     if submitted:
         rows = st.session_state.bulk_df.copy()
 
         st.write("DEBUG: bulk_df rows:", len(st.session_state.bulk_df))
         st.write("DEBUG: rows copied for import:", len(rows))
         st.dataframe(rows[EDIT_COLS].head(30), use_container_width=True, hide_index=True)
-    
+
         if rows.empty:
             st.warning("Keine Zeilen im Gitter.")
         else:
@@ -1146,9 +1259,7 @@ elif st.session_state.step == 3:
 
                         desc      = _s(row.get("beschreibung"))
                         code_raw  = _s(row.get("mwst_code")).upper().strip()
-                        mwst_kto  = _s(row.get("mwst_konto")).strip()
 
-                        # --- VAT resolution via env-based tax_id ---
                         tax_id = None
                         if code_raw:
                             tax_id = _tax_id_from_code(code_raw)
@@ -1159,23 +1270,41 @@ elif st.session_state.step == 3:
                                     f"‘{code_raw}’ im Namen/Kürzel enthält oder setze BEXIO_TAX_ID_{code_raw} in der .env."
                                 )
 
-                        # -------- ONE single-entry payload incl. VAT --------
+                        currency_raw = _s(row.get("currency")).upper().strip()
+                        rate_raw = row.get("exchange_rate")
+                        rate = _f(rate_raw)
+
+                        if not currency_raw:
+                            currency_raw = DEFAULT_CURRENCY_CODE
+
+                        currency_id = _currency_id_from_input(currency_raw)
+                        if not currency_id:
+                            raise ValueError(
+                                f"Unbekannte Währung '{currency_raw}' (Editor-Zeile {idx+1}). "
+                                f"Nutze ISO (CHF/EUR/USD) oder trage currency_id ein. Optional: setze BEXIO_CURRENCY_ID_{currency_raw} in .env."
+                            )
+
+                        if currency_raw == DEFAULT_CURRENCY_CODE or int(currency_id) == int(DEFAULT_CURRENCY_ID):
+                            currency_factor = 1.0
+                        else:
+                            if rate <= 0:
+                                raise ValueError(
+                                    f"Exchange rate fehlt/ungültig für {currency_raw} (Editor-Zeile {idx+1}). "
+                                    f"Bitte positiven Kurs eintragen (z.B. 0.95)."
+                                )
+                            currency_factor = float(rate)
+
                         base_entry = {
                             "debit_account_id": int(debit_id),
                             "credit_account_id": int(credit_id),
                             "amount": float(amount),
                             "description": desc,
-                            "currency_id": int(DEFAULT_CURRENCY_ID),
-                            "currency_factor": float(DEFAULT_CURRENCY_FACTOR),
+                            "currency_id": int(currency_id),
+                            "currency_factor": float(currency_factor),
                         }
 
                         if tax_id:
                             base_entry["tax_id"] = int(tax_id)
-                            # IMPORTANT:
-                            # For type="manual_single_entry", bexio requires
-                            # tax_account_id == debit_account_id or credit_account_id.
-                            # Your UI bookings show tax_account_id == debit_account_id,
-                            # so we mirror that behaviour here.
                             base_entry["tax_account_id"] = int(debit_id)
 
                         def _post_with_entry(entry_obj):
@@ -1192,9 +1321,7 @@ elif st.session_state.step == 3:
                                 payload=payload_local,
                             )
 
-                        
                         ok, resp = _post_with_entry(base_entry)
-
 
                         if ok:
                             try:
@@ -1202,12 +1329,12 @@ elif st.session_state.step == 3:
                             except Exception:
                                 rid = None
                             results.append({
-                                "row": idx + 1, "csv_row": row.get("csv_row",""),
+                                "row": idx + 1, "csv_row": row.get("csv_row", ""),
                                 "status": "OK", "id": rid, "reference_nr": ref_nr
                             })
                         else:
                             results.append({
-                                "row": idx + 1, "csv_row": row.get("csv_row",""),
+                                "row": idx + 1, "csv_row": row.get("csv_row", ""),
                                 "status": "ERROR", "error": resp
                             })
 
@@ -1217,12 +1344,12 @@ elif st.session_state.step == 3:
                         except Exception:
                             err_txt = str(e)
                         results.append({
-                            "row": idx + 1, "csv_row": row.get("csv_row",""),
+                            "row": idx + 1, "csv_row": row.get("csv_row", ""),
                             "status": f"HTTP {e.response.status_code}", "error": err_txt
                         })
                     except Exception as e:
                         results.append({
-                            "row": idx + 1, "csv_row": row.get("csv_row",""),
+                            "row": idx + 1, "csv_row": row.get("csv_row", ""),
                             "status": "ERROR", "error": str(e)
                         })
 
@@ -1234,3 +1361,5 @@ elif st.session_state.step == 3:
             else:
                 st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
+
