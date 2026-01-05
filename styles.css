@@ -14,6 +14,53 @@
   --outline:#CBD5E1;        /* outline pills */
 }
 
+/* --- Layout spacing --- */
+.block-container { padding-top: 3rem; }
+
+/* --- Login card --- */
+.login-wrap {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 28px;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,0.10);
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+.login-title {
+  font-size: 1.9rem;
+  font-weight: 750;
+  margin: 0 0 .25rem 0;
+}
+
+.login-sub {
+  opacity: .8;
+  margin: 0 0 1.2rem 0;
+  line-height: 1.45;
+}
+
+.cta {
+  display: block;
+  text-align: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #1f77b4;
+  color: #fff !important;
+}
+
+.cta:hover { filter: brightness(0.95); }
+
+.small-hint {
+  opacity: .65;
+  margin-top: 1rem;
+  font-size: .9rem;
+}
+
+
 /* ===== Base ===== */
 html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;color:var(--text)!important;}
 .block-container{max-width:1200px;padding-top:1.5rem!important;padding-bottom:3rem!important;}
