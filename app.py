@@ -411,28 +411,29 @@ def make_login_url():
 def render_login_page():
     login_url = make_login_url()
 
-    left, mid, right = st.columns([1, 2, 1])
-    with mid:
-        st.markdown(
-            f"""
-            <div class="login-wrap">
-              <div class="login-title">🤖 Accounting Copilot</div>
-              <div class="login-sub">
-                Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
-              </div>
-
-              <a class="cta" href="{login_url}" target="_top" rel="noopener noreferrer">
-                🔐 Mit bexio anmelden
-              </a>
-
-              <div class="small-hint">
-                Falls der Button nicht reagiert:
-                <a href="{login_url}" target="_top" rel="noopener noreferrer">Login-Link öffnen</a>
-              </div>
+    st.markdown(
+        f"""
+        <div class="login-page">
+          <div class="login-wrap">
+            <div class="login-title">🤖 Accounting Copilot</div>
+            <div class="login-sub">
+              Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+
+            <!-- IMPORTANT: _blank avoids iframe/top-nav issues -->
+            <a class="cta" href="{login_url}" target="_blank" rel="noopener noreferrer">
+              🔐 Mit bexio anmelden
+            </a>
+
+            <div class="small-hint">
+              Falls du die App in Teams/SharePoint/iframe geöffnet hast: bitte in einem normalen Browser-Tab öffnen.
+              Alternativ: <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link öffnen</a>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 
