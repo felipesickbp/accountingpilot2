@@ -656,7 +656,11 @@ elif st.session_state.step == 2:
     st.subheader("2) Bankdatei importieren (CSV/Excel)")
     st.caption("Lade eine CSV (oder Excel mit .csv-Endung) – oder starte ohne Datei mit einer leeren Tabelle.")
 
-    bank_file = st.file_uploader("Bank-CSV hochladen", type=["csv"])
+    bank_file = st.file_uploader(
+        "Bankdatei hochladen (CSV/Excel)",
+        type=["csv", "xlsx", "xls"]  # xls optional
+    )
+
 
     # NEW: Skip file upload and go straight to an empty grid
     if st.button("Ohne Datei starten (leere Tabelle)", key="start_empty_table"):
