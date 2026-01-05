@@ -44,16 +44,20 @@
   margin: 0 0 .25rem 0;
 }
 
-.login-page {
-  min-height: calc(100vh - 6rem); /* adjust if you have big padding */
+/* --- Login centering override (put at END of file) --- */
+.login-page{
+  width: 100%;
+  min-height: calc(100vh - 1.5rem); /* match your .block-container padding-top */
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.login-wrap {
+.login-wrap{
   width: min(560px, 92vw);
+  margin: 0;                 /* important: flex does centering, no auto margins needed */
 }
+
 
 .login-sub {
   opacity: .8;
