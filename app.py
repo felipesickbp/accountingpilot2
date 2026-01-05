@@ -96,7 +96,9 @@ def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
         df["csv_row"] = pd.Series([pd.NA]*len(df), dtype="Int64")
     df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
     for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung", "mwst_code", "mwst_konto"]:
+        df[c] = df[c].replace({None: ""}).fillna("")
         df[c] = df[c].astype(str)
+        df[c] = df[c].replace({"None": "", "nan": "", "<NA>": ""})
     return df
 
 
@@ -773,7 +775,13 @@ elif st.session_state.step == 3:
         submitted  = colB.form_submit_button("Buchungen posten", type="primary")
 
     # merge edited values back
-    st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
+    # Sanitize editor artifacts
+    st.session_state.bulk_df[EDIT_COLS] = (
+        st.session_state.bulk_df[EDIT_COLS]
+          .replace({None: "", "None": "", "nan": "", "NaN": "", "<NA>": ""})
+          .fillna("")
+    )
+
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
     # ---------- batching controls ----------
