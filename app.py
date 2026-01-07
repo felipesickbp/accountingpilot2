@@ -1091,7 +1091,7 @@ elif st.session_state.step == 3:
                         parts.append(str(v))
                 joined_upper = " ".join(parts).upper()
 
-                for token in ("UN81", "VM81", "VB81"):
+                for token in ("UN81", "VM81", "VB81", "BZM81":
                     if token in joined_upper:
                         mp.setdefault(token, tid)
 
