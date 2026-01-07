@@ -1040,7 +1040,7 @@ elif st.session_state.step == 3:
                 "exchange_rate":  st.column_config.NumberColumn("exchange rate (currency_factor)", min_value=0.0, step=0.0001, format="%.6f"),
                 "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
                 "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-                "mwst_code":      st.column_config.TextColumn("MWST code (UN81 / VM81 / VB81)"),
+                "mwst_code":      st.column_config.TextColumn("MWST code (UN81 / VM81 / VB81 / BZM81)"),
                 "mwst_konto":     st.column_config.TextColumn("MWST Konto (optional; 3xxx/6xxx if you want to override)"),
             }
         )
