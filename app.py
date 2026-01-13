@@ -74,47 +74,24 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title: str = "Accounting Pilot", logo_height_px: int = 46):
-    logo_scale = 0.7  # 70%
+def render_solid_header(title: str = "Accounting Pilot"):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = (
-            f'<img src="data:image/webp;base64,{b64}" '
-            f'style="height:{int(logo_height_px * logo_scale)}px; width:auto; display:block;" />'
-        )
+        logo_html = f'<img src="data:image/webp;base64,{b64}" />'
 
     st.markdown(
-        textwrap.dedent(f"""
-        <style>
-          .block-container {{ padding-top: 1rem; }}
-
-          .solid-header {{
-            position: sticky;
-            top: 0;
-            z-index: 9999;
-            background: white;
-            border-bottom: 1px solid rgba(0,0,0,0.08);
-            box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
-            padding: 12px 18px;
-            margin: -1rem 0 1rem 0;
-            border-radius: 14px;
-          }}
-
-          .solid-header-inner {{
-            display: flex;
-            align-items: center;
-            gap: 14px;
-          }}
-        </style>
-
+        f"""
         <div class="solid-header">
           <div class="solid-header-inner">
             {logo_html}
-            <div></div>
+            <div>
+              <div class="solid-title">{title}</div>
+              <div class="solid-sub">Bexio Import · MWST · Multi-Currency</div>
+            </div>
           </div>
         </div>
-        """),
+        """,
         unsafe_allow_html=True,
     )
 
