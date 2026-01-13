@@ -121,14 +121,7 @@ def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int =
           }}
         </style>
 
-        <div class="solid-header">
-          <div class="solid-header-inner">
-            {logo_html}
-            <div>
-              <div class="solid-title">{title}</div>
-            </div>
-          </div>
-        </div>
+        
         """),
         unsafe_allow_html=True,
     )
