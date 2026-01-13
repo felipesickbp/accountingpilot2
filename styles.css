@@ -1,46 +1,102 @@
-/* --- Layout spacing --- */
-/* was: .block-container { padding-top: 3rem; } */
-.block-container { padding-top: 1rem; padding-bottom: 2.5rem; }
+/* styles.css — compact, high-contrast, modern */
 
-/* ===== Solid app header (sticky) ===== */
-.solid-header{
-  position: sticky;
-  top: 0;
-  z-index: 9999;
-  background: #fff;
-  border-bottom: 1px solid rgba(0,0,0,0.08);
-  box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
-  padding: 12px 18px;
-  margin: 0 0 1rem 0;     /* ✅ no negative margin -> no cut-off */
-  border-radius: 14px;
+/* ===== Top centered logo ===== */
+.top-logo{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  margin: .75rem 0 1.25rem 0;
+}
+.top-logo img{
+  width: 180px;   /* adjust */
+  height: auto;
 }
 
-.solid-header-inner{
+
+/* ===== Brand ===== */
+:root{
+  --bg:#fff;
+  --card:#F5F7FA;
+  --border:#E5E7EB;
+  --text:#0F1D2B;
+  --muted:rgba(15,29,43,.9);
+
+  --primary:#0F4C81;        /* CTA buttons */
+  --primary-ink:#FFFFFF;    /* CTA text */
+  --primary-hover:#1F5D9E;  /* CTA hover */
+  --outline:#CBD5E1;        /* outline pills */
+}
+
+/* --- Layout spacing --- */
+.block-container { padding-top: 3rem; }
+
+/* Center container for the whole login view */
+.login-center {
+  min-height: calc(100vh - 6rem); /* adjust if your top padding differs */
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
 }
 
-.solid-header img{
-  height: 32px;           /* ~70% of 46px */
-  width: auto;
+
+
+/* --- Login card --- */
+.login-wrap {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 28px;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,0.10);
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+.login-title {
+  font-size: 1.9rem;
+  font-weight: 750;
+  margin: 0 0 .25rem 0;
+}
+
+/* --- Login centering override (put at END of file) --- */
+.login-page{
+  width: 100%;
+  min-height: calc(100vh - 1.5rem); /* match your .block-container padding-top */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-wrap{
+  width: min(560px, 92vw);
+  margin: 0;                 /* important: flex does centering, no auto margins needed */
+}
+
+
+.login-sub {
+  opacity: .8;
+  margin: 0 0 1.2rem 0;
+  line-height: 1.45;
+}
+
+.cta {
   display: block;
+  text-align: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #1f77b4;
+  color: #fff !important;
 }
 
-.solid-title{
-  font-size: 1.7rem;
-  font-weight: 850;
-  margin: 0;
-  line-height: 1.1;
-  color: #0F1D2B;
-}
+.cta:hover { filter: brightness(0.95); }
 
-.solid-sub{
-  margin: .15rem 0 0 0;
-  opacity: .75;
-  font-size: 1rem;
+.small-hint {
+  opacity: .65;
+  margin-top: 1rem;
+  font-size: .9rem;
 }
-
 
 /* ===== Base ===== */
 html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;color:var(--text)!important;}
