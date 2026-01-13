@@ -7,24 +7,8 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
 import re
-from pathlib import Path
-import base64
 
-
-st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
-
-logo_path = Path(__file__).parent / "assets" / "logo.webp"
-logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
-
-st.markdown(
-    f"""
-    <div class="top-logo">
-      <img src="data:image/webp;base64,{logo_b64}" alt="logo">
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
+load_dotenv(override=True)
 
 # =========================
 # ENV + OAUTH HELPERS
@@ -51,8 +35,7 @@ API_V2 = "https://api.bexio.com/2.0"
 
 SCOPES = "openid profile email offline_access company_profile"
 
-
-
+st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
 def ui_shell():
     st.markdown(
         """
