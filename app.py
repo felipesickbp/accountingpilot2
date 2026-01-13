@@ -119,7 +119,6 @@ def render_solid_header(title="Accounting Pilot", logo_px=36):
         <div class="solid-header">
           <div class="solid-header-inner">
             {logo_html}
-            <div class="solid-title">{title}</div>
           </div>
         </div>
         """,
