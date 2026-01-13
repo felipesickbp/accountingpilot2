@@ -1,5 +1,18 @@
 /* styles.css — compact, high-contrast, modern */
 
+/* ===== Top centered logo ===== */
+.top-logo{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  margin: .75rem 0 1.25rem 0;
+}
+.top-logo img{
+  width: 180px;   /* adjust */
+  height: auto;
+}
+
+
 /* ===== Brand ===== */
 :root{
   --bg:#fff;
