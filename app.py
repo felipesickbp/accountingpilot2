@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from datetime import date as dt_date
 import re
 from pathlib import Path
-import base64
 
 
 
