@@ -120,6 +120,14 @@ def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int =
             font-size: 1.0rem;
           }}
         </style>
+        <div class="solid-header">
+          <div class="solid-header-inner">
+            {logo_html}
+            <div>
+              <div class="solid-title">{title}</div>
+            </div>
+          </div>
+        </div>
 
         
         """),
