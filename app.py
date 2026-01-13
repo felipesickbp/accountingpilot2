@@ -1,32 +1,18 @@
-import os
+import os, time, base64, io
+import pandas as pd
 import streamlit as st
+import requests
+import math, random
+from urllib.parse import urlencode
+from dotenv import load_dotenv
+from datetime import date as dt_date
+import re
 from pathlib import Path
 import base64
 
+
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
 
-# --- Load .env for LOCAL dev only (won't exist on Streamlit Cloud) ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
-except Exception:
-    pass
-
-def _getenv(name: str, required=True, default=None):
-    v = st.secrets.get(name, None)  # Streamlit Cloud secrets
-    if v is None:
-        v = os.getenv(name, default)  # local env / .env
-    if required and (v is None or str(v).strip() == ""):
-        st.error(f"Missing required env: {name}")
-        st.stop()
-    return v
-
-# --- Read credentials ---
-BEXIO_CLIENT_ID     = _getenv("BEXIO_CLIENT_ID")
-BEXIO_CLIENT_SECRET = _getenv("BEXIO_CLIENT_SECRET")
-BEXIO_REDIRECT_URI  = _getenv("BEXIO_REDIRECT_URI")
-
-# --- Logo (after page_config!) ---
 logo_path = Path(__file__).parent / "assets" / "logo.webp"
 logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
 
@@ -38,6 +24,33 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+# =========================
+# ENV + OAUTH HELPERS
+# =========================
+
+def _getenv(name: str, required=True, default=None):
+    v = os.getenv(name, default)
+    if required and (v is None or str(v).strip() == ""):
+        st.error(f"Missing required env: {name}")
+        st.stop()
+    return v
+
+BEXIO_CLIENT_ID     = _getenv("BEXIO_CLIENT_ID")
+BEXIO_CLIENT_SECRET = _getenv("BEXIO_CLIENT_SECRET")
+BEXIO_REDIRECT_URI  = _getenv("BEXIO_REDIRECT_URI")
+
+AUTH_URL  = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/auth"
+TOKEN_URL = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/token"
+
+API_V3 = "https://api.bexio.com/3.0"
+MANUAL_ENTRIES_V3 = f"{API_V3}/accounting/manual_entries"
+NEXT_REF_V3       = f"{API_V3}/accounting/manual_entries/next_ref_nr"
+API_V2 = "https://api.bexio.com/2.0"
+
+SCOPES = "openid profile email offline_access company_profile"
+
 
 
 def ui_shell():
