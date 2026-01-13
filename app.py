@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from datetime import date as dt_date
 import re
 from pathlib import Path
+import base64
 
 
 
@@ -72,20 +73,65 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_header():
-    left, right = st.columns([1, 8])
 
-    with left:
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=46)  # adjust width as you like
-        else:
-            st.caption("logo missing")
+def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int = 44):
+    # read logo → base64 (works reliably on Streamlit Cloud too)
+    logo_html = ""
+    if LOGO_PATH.exists():
+        b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        logo_html = f"""
+          <img src="data:image/webp;base64,{b64}"
+               style="height:{logo_height_px}px; width:auto; display:block;" />
+        """
 
-    with right:
-        st.markdown(
-            "<div style='margin-top:2px; font-size:2.0rem; font-weight:700;'>Accounting Copilot</div>",
-            unsafe_allow_html=True
-        )
+    st.markdown(
+        f"""
+        <style>
+          /* optional: reduce top padding so header feels “attached” */
+          .block-container {{ padding-top: 1rem; }}
+
+          .solid-header {{
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            background: white;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
+            padding: 10px 16px;
+            margin: -1rem 0 1.0rem 0;  /* pulls up into the top padding a bit */
+            border-radius: 14px;
+          }}
+          .solid-header-inner {{
+            display: flex;
+            align-items: center;
+            gap: 14px;
+          }}
+          .solid-title {{
+            font-size: 1.6rem;
+            font-weight: 800;
+            margin: 0;
+            line-height: 1.1;
+            color: #0F1D2B;
+          }}
+          .solid-sub {{
+            margin: 0;
+            opacity: 0.75;
+            font-size: 0.95rem;
+          }}
+        </style>
+
+        <div class="solid-header">
+          <div class="solid-header-inner">
+            {logo_html}
+            <div>
+              <div class="solid-title">{title}</div>
+              <div class="solid-sub">Bexio Import · MWST · Multi-Currency</div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_login_page():
@@ -676,9 +722,9 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
 
-render_header()
+render_solid_header()
 sidebar_nav()
-st.markdown("---")
+# st.markdown("---")  # not needed anymore (header already has a divider)
 
 
 # =========================
