@@ -72,9 +72,7 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-
-def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int = 44):
-    # read logo → base64 (works reliably on Streamlit Cloud too)
+def render_solid_header(title: str = "Accounting Copilot", subtitle: str = "Bexio Import · MWST · Multi-Currency", logo_height_px: int = 56):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
@@ -86,51 +84,57 @@ def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int =
     st.markdown(
         f"""
         <style>
-          /* optional: reduce top padding so header feels “attached” */
-          .block-container {{ padding-top: 1rem; }}
+          /* reduce top padding so header sits nicely */
+          .block-container {{ padding-top: 0.75rem; }}
 
-          .solid-header {{
+          /* full-width sticky app bar */
+          .appbar {{
             position: sticky;
             top: 0;
-            z-index: 999;
+            z-index: 9999;
             background: white;
             border-bottom: 1px solid rgba(0,0,0,0.08);
-            box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
-            padding: 10px 16px;
-            margin: -1rem 0 1.0rem 0;  /* pulls up into the top padding a bit */
-            border-radius: 14px;
+            box-shadow: 0 8px 20px rgba(15, 29, 43, 0.06);
+            padding: 14px 22px;
+
+            /* stretch to full width (compensate Streamlit container padding) */
+            margin: -0.75rem -1.0rem 1.0rem -1.0rem;
           }}
-          .solid-header-inner {{
+
+          .appbar-inner {{
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 16px;
           }}
-          .solid-title {{
-            font-size: 1.6rem;
-            font-weight: 800;
+
+          .appbar-title {{
+            font-size: 1.75rem;
+            font-weight: 850;
             margin: 0;
-            line-height: 1.1;
+            line-height: 1.05;
             color: #0F1D2B;
           }}
-          .solid-sub {{
-            margin: 0;
+
+          .appbar-sub {{
+            margin: 0.15rem 0 0 0;
             opacity: 0.75;
-            font-size: 0.95rem;
+            font-size: 1.0rem;
           }}
         </style>
 
-        <div class="solid-header">
-          <div class="solid-header-inner">
+        <div class="appbar">
+          <div class="appbar-inner">
             {logo_html}
             <div>
-              <div class="solid-title">{title}</div>
-              <div class="solid-sub">Bexio Import · MWST · Multi-Currency</div>
+              <div class="appbar-title">{title}</div>
+              <div class="appbar-sub">{subtitle}</div>
             </div>
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 def render_login_page():
