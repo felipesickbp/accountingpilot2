@@ -74,7 +74,7 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int = 56):
+def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int = 46):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
@@ -126,7 +126,6 @@ def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int =
             {logo_html}
             <div>
               <div class="solid-title">{title}</div>
-              <div class="solid-sub">Bexio Import · MWST · Multi-Currency</div>
             </div>
           </div>
         </div>
