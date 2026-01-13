@@ -74,13 +74,14 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int = 46):
+def render_solid_header(title: str = "Accounting Pilot", logo_height_px: int = 46):
+    logo_scale = 0.7  # 70%
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
         logo_html = (
             f'<img src="data:image/webp;base64,{b64}" '
-            f'style="height:{logo_height_px}px; width:auto; display:block;" />'
+            f'style="height:{int(logo_height_px * logo_scale)}px; width:auto; display:block;" />'
         )
 
     st.markdown(
@@ -105,33 +106,18 @@ def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int =
             align-items: center;
             gap: 14px;
           }}
-
-          .solid-title {{
-            font-size: 1.7rem;
-            font-weight: 850;
-            margin: 0;
-            line-height: 1.1;
-            color: #0F1D2B;
-          }}
-
-          .solid-sub {{
-            margin: 0.15rem 0 0 0;
-            opacity: 0.75;
-            font-size: 1.0rem;
-          }}
         </style>
+
         <div class="solid-header">
           <div class="solid-header-inner">
             {logo_html}
-            <div>
-            </div>
+            <div></div>
           </div>
         </div>
-
-        
         """),
         unsafe_allow_html=True,
     )
+
 
 
 
