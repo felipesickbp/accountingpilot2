@@ -74,7 +74,7 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title="Accounting Pilot", logo_px=36)
+def render_solid_header(title="Accounting Pilot", logo_px=36):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
