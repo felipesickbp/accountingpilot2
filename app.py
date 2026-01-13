@@ -87,7 +87,6 @@ def render_solid_header(title: str = "Accounting Pilot"):
             {logo_html}
             <div>
               <div class="solid-title">{title}</div>
-              <div class="solid-sub">Bexio Import · MWST · Multi-Currency</div>
             </div>
           </div>
         </div>
