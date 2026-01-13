@@ -74,20 +74,52 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title: str = "Accounting Pilot"):
+def render_solid_header(title: str = "Accounting Pilot", logo_px: int = 36):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f'<img src="data:image/webp;base64,{b64}" />'
+        logo_html = f"""
+        <img class="solid-logo" src="data:image/webp;base64,{b64}" />
+        """
 
     st.markdown(
         f"""
+        <style>
+          /* only affects the header */
+          .solid-header {{
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+            background: white;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
+            padding: 12px 16px;
+            margin: 0 0 1rem 0;       /* ✅ no negative margin => no clipping */
+            border-radius: 14px;
+          }}
+          .solid-header-inner {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }}
+          .solid-logo {{
+            height: {logo_px}px;
+            width: auto;
+            display: block;
+          }}
+          .solid-title {{
+            font-size: 1.35rem;
+            font-weight: 850;
+            margin: 0;
+            line-height: 1.1;
+            color: #0F1D2B;
+          }}
+        </style>
+
         <div class="solid-header">
           <div class="solid-header-inner">
             {logo_html}
-            <div>
-              <div class="solid-title">{title}</div>
-            </div>
+            <div class="solid-title">{title}</div>
           </div>
         </div>
         """,
@@ -95,20 +127,16 @@ def render_solid_header(title: str = "Accounting Pilot"):
     )
 
 
-
-
-
 def render_login_page():
     login_url = make_login_url()
 
-    # add this block
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=64)
+    # ✅ top-left header on login page too
+    render_solid_header(title="Accounting Pilot", logo_px=36)
 
     st.markdown(
         f"""
         <div class="login-wrap">
-          <div class="login-title">🤖 Accounting Copilot</div>
+          <div class="login-title">🤖 Accounting Pilot</div>
           ...
         </div>
         """,
