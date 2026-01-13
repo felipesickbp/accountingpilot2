@@ -7,6 +7,10 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
 import re
+from pathlib import Path
+
+
+
 
 load_dotenv(override=True)
 
@@ -64,6 +68,43 @@ def ui_shell():
     )
 
 ui_shell()
+
+
+LOGO_PATH = Path("assets/logo.webp")
+
+def render_header():
+    left, right = st.columns([1, 8])
+
+    with left:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=46)  # adjust width as you like
+        else:
+            st.caption("logo missing")
+
+    with right:
+        st.markdown(
+            "<div style='margin-top:2px; font-size:2.0rem; font-weight:700;'>Accounting Copilot</div>",
+            unsafe_allow_html=True
+        )
+
+
+def render_login_page():
+    login_url = make_login_url()
+
+    # add this block
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=64)
+
+    st.markdown(
+        f"""
+        <div class="login-wrap">
+          <div class="login-title">🤖 Accounting Copilot</div>
+          ...
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 # =========================
 # THEME CSS (optional)
@@ -635,9 +676,10 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
 
-st.title("Accounting Copilot")
+render_header()
 sidebar_nav()
 st.markdown("---")
+
 
 # =========================
 # STEP 1 — KONTENPLAN
