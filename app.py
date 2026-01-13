@@ -8,13 +8,20 @@ from dotenv import load_dotenv
 from datetime import date as dt_date
 import re
 from pathlib import Path
+import base64
 
-LOGO = Path(__file__).parent / "assets" / "logo.webp"
+logo_path = Path(__file__).parent / "assets" / "logo.webp"
+logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("utf-8")
 
-left, mid, right = st.columns([1, 2, 1])
-with mid:
-    st.image(str(LOGO), width=180)  # tweak width
-load_dotenv(override=True)
+st.markdown(
+    f"""
+    <div class="top-logo">
+      <img src="data:image/webp;base64,{logo_b64}" alt="logo">
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # =========================
 # ENV + OAUTH HELPERS
