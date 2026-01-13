@@ -130,6 +130,8 @@ def render_solid_header(title="Accounting Pilot", logo_px=36):
 def render_login_page():
     login_url = make_login_url()
 
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)  # 👈 space at top
+
     # ✅ top-left header on login page too
     render_solid_header(title="Accounting Pilot", logo_px=36)
 
@@ -142,6 +144,7 @@ def render_login_page():
         """,
         unsafe_allow_html=True
     )
+
 
 
 # =========================
