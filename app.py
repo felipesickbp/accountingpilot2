@@ -7,7 +7,13 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 from datetime import date as dt_date
 import re
+from pathlib import Path
 
+LOGO = Path(__file__).parent / "assets" / "logo.webp"
+
+left, mid, right = st.columns([1, 2, 1])
+with mid:
+    st.image(str(LOGO), width=180)  # tweak width
 load_dotenv(override=True)
 
 # =========================
