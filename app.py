@@ -74,68 +74,66 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title: str = "Accounting Copilot", subtitle: str = "Bexio Import · MWST · Multi-Currency", logo_height_px: int = 56):
+def render_solid_header(title: str = "Accounting Copilot", logo_height_px: int = 56):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f"""
-          <img src="data:image/webp;base64,{b64}"
-               style="height:{logo_height_px}px; width:auto; display:block;" />
-        """
+        logo_html = (
+            f'<img src="data:image/webp;base64,{b64}" '
+            f'style="height:{logo_height_px}px; width:auto; display:block;" />'
+        )
 
     st.markdown(
-        f"""
+        textwrap.dedent(f"""
         <style>
-          /* reduce top padding so header sits nicely */
-          .block-container {{ padding-top: 0.75rem; }}
+          .block-container {{ padding-top: 1rem; }}
 
-          /* full-width sticky app bar */
-          .appbar {{
+          .solid-header {{
             position: sticky;
             top: 0;
             z-index: 9999;
             background: white;
             border-bottom: 1px solid rgba(0,0,0,0.08);
-            box-shadow: 0 8px 20px rgba(15, 29, 43, 0.06);
-            padding: 14px 22px;
-
-            /* stretch to full width (compensate Streamlit container padding) */
-            margin: -0.75rem -1.0rem 1.0rem -1.0rem;
+            box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
+            padding: 12px 18px;
+            margin: -1rem 0 1rem 0;
+            border-radius: 14px;
           }}
 
-          .appbar-inner {{
+          .solid-header-inner {{
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
           }}
 
-          .appbar-title {{
-            font-size: 1.75rem;
+          .solid-title {{
+            font-size: 1.7rem;
             font-weight: 850;
             margin: 0;
-            line-height: 1.05;
+            line-height: 1.1;
             color: #0F1D2B;
           }}
 
-          .appbar-sub {{
+          .solid-sub {{
             margin: 0.15rem 0 0 0;
             opacity: 0.75;
             font-size: 1.0rem;
           }}
         </style>
 
-        <div class="appbar">
-          <div class="appbar-inner">
+        <div class="solid-header">
+          <div class="solid-header-inner">
             {logo_html}
             <div>
-              <div class="appbar-title">{title}</div>
-              <div class="appbar-sub">{subtitle}</div>
+              <div class="solid-title">{title}</div>
+              <div class="solid-sub">Bexio Import · MWST · Multi-Currency</div>
             </div>
           </div>
         </div>
-        """,
+        """),
         unsafe_allow_html=True,
     )
+
 
 
 
@@ -729,8 +727,6 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 
 render_solid_header()
 sidebar_nav()
-# st.markdown("---")  # not needed anymore (header already has a divider)
-
 
 # =========================
 # STEP 1 — KONTENPLAN
