@@ -1,34 +1,24 @@
-# app.py — WORKING version (login page + logo + header)
-# Key fixes:
-# 1) styles.css + ui_shell() are applied ONLY AFTER login (so they cannot override login page)
-# 2) Only ONE render_login_page() exists
-# 3) LOGO_PATH is robust (Path(__file__).parent / assets / logo.webp)
-# 4) Login CSS is scoped + uses !important where Streamlit tends to override
+# app.py — more reliable OAuth + login page
+# Fixes added:
+# - Uses target="_top" (break out of any iframe) + safe fallback link
+# - Persists & validates OAuth "state" (CSRF + fewer weird callback edge cases)
+# - Query-param helpers work on both newer Streamlit (st.query_params) and older (experimental_*)
+# - No duplicate render_login_page()
 
-import os, time, base64, io
-import pandas as pd
+import os, time, base64
+from urllib.parse import urlencode
+from pathlib import Path
+
 import streamlit as st
 import requests
-import math, random
-from urllib.parse import urlencode
 from dotenv import load_dotenv
-from datetime import date as dt_date
-import re
-from pathlib import Path
-import textwrap
 
 load_dotenv(override=True)
 
-# =========================
-# PATHS
-# =========================
 APP_DIR = Path(__file__).resolve().parent
 LOGO_PATH = APP_DIR / "assets" / "logo.webp"
-CSS_PATH = APP_DIR / "styles.css"
+CSS_PATH  = APP_DIR / "styles.css"
 
-# =========================
-# ENV + OAUTH HELPERS
-# =========================
 def _getenv(name: str, required=True, default=None):
     v = os.getenv(name, default)
     if required and (v is None or str(v).strip() == ""):
@@ -42,19 +32,34 @@ BEXIO_REDIRECT_URI  = _getenv("BEXIO_REDIRECT_URI")
 
 AUTH_URL  = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/auth"
 TOKEN_URL = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/token"
-
-API_V3 = "https://api.bexio.com/3.0"
-MANUAL_ENTRIES_V3 = f"{API_V3}/accounting/manual_entries"
-NEXT_REF_V3       = f"{API_V3}/accounting/manual_entries/next_ref_nr"
-API_V2 = "https://api.bexio.com/2.0"
-
-SCOPES = "openid profile email offline_access company_profile"
+SCOPES    = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
 
-# =========================
-# UI SHELL (APPLY ONLY AFTER LOGIN!)
-# =========================
+# -------------------------
+# Query param helpers (new + old Streamlit)
+# -------------------------
+def _qp_get(key: str):
+    try:
+        v = st.query_params.get(key)
+        # depending on Streamlit version, this can be str or list[str]
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+    except Exception:
+        qp = st.experimental_get_query_params()
+        v = qp.get(key)
+        return v[0] if isinstance(v, list) and v else None
+
+def _qp_clear():
+    try:
+        st.query_params.clear()
+    except Exception:
+        st.experimental_set_query_params()
+
+# -------------------------
+# UI (apply only after login)
+# -------------------------
 def ui_shell():
     st.markdown(
         """
@@ -62,28 +67,19 @@ def ui_shell():
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {display: none;}
-
         .block-container { padding-top: 2.0rem; padding-bottom: 2.5rem; }
-
-        .card {
-            border: 1px solid rgba(49, 51, 63, 0.2);
-            border-radius: 16px;
-            padding: 18px 18px;
-            background: rgba(255,255,255,0.02);
-        }
-        .muted { opacity: 0.8; }
-        .big-title { font-size: 2.0rem; font-weight: 700; margin: 0 0 0.3rem 0; }
-        .subtle { opacity: 0.85; margin-top: 0.2rem; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+def _inject_local_css(file_path: Path = CSS_PATH):
+    try:
+        if file_path.exists():
+            st.markdown(f"<style>{file_path.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+    except Exception:
+        pass
 
-
-# =========================
-# HEADER (APPLY ONLY AFTER LOGIN!)
-# =========================
 def render_solid_header(title="Accounting Pilot", logo_px=34):
     logo_html = ""
     if LOGO_PATH.exists():
@@ -94,9 +90,7 @@ def render_solid_header(title="Accounting Pilot", logo_px=34):
         f"""
         <style>
           .solid-header {{
-            position: sticky;
-            top: 0;
-            z-index: 9999;
+            position: sticky; top: 0; z-index: 9999;
             background: white;
             border-bottom: 1px solid rgba(0,0,0,0.08);
             box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
@@ -104,23 +98,9 @@ def render_solid_header(title="Accounting Pilot", logo_px=34):
             margin: 0 0 1rem 0;
             border-radius: 14px;
           }}
-          .solid-header-inner {{
-            display: flex;
-            align-items: center;
-            gap: 12px;
-          }}
-          .solid-logo {{
-            height: {logo_px}px;
-            width: auto;
-            display: block;
-          }}
-          .solid-title {{
-            font-size: 1.15rem;
-            font-weight: 850;
-            margin: 0;
-            line-height: 1.1;
-            color: #0F1D2B;
-          }}
+          .solid-header-inner {{ display:flex; align-items:center; gap:12px; }}
+          .solid-logo {{ height:{logo_px}px; width:auto; display:block; }}
+          .solid-title {{ font-size:1.15rem; font-weight:850; margin:0; line-height:1.1; color:#0F1D2B; }}
         </style>
 
         <div class="solid-header">
@@ -133,11 +113,14 @@ def render_solid_header(title="Accounting Pilot", logo_px=34):
         unsafe_allow_html=True,
     )
 
-# =========================
-# AUTH HELPERS
-# =========================
-def make_login_url():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
+# -------------------------
+# OAuth helpers
+# -------------------------
+def make_login_url() -> str:
+    # persist state so we can validate it on callback
+    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(18)).decode("utf-8")
+    st.session_state["oauth_state"] = state
+
     params = {
         "client_id": BEXIO_CLIENT_ID,
         "redirect_uri": BEXIO_REDIRECT_URI,
@@ -147,22 +130,25 @@ def make_login_url():
     }
     return f"{AUTH_URL}?{urlencode(params)}"
 
-def auth_header(token):
+def auth_header(token: str):
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
-def save_tokens(tokens):
+def save_tokens(tokens: dict):
     tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
     st.session_state.oauth = tokens
 
-def need_login():
-    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
+def need_login() -> bool:
+    oauth = st.session_state.get("oauth") or {}
+    return (not oauth) or (time.time() > oauth.get("expires_at", 0))
 
 def refresh_access_token():
-    if not st.session_state.oauth.get("refresh_token"):
+    oauth = st.session_state.get("oauth") or {}
+    if not oauth.get("refresh_token"):
         return
+
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": st.session_state.oauth["refresh_token"],
+        "refresh_token": oauth["refresh_token"],
         "client_id": BEXIO_CLIENT_ID,
         "client_secret": BEXIO_CLIENT_SECRET,
         "redirect_uri": BEXIO_REDIRECT_URI,
@@ -172,10 +158,17 @@ def refresh_access_token():
     save_tokens(r.json())
 
 def handle_callback():
-    qp = st.query_params
-    code = qp.get("code")
+    code  = _qp_get("code")
+    state = _qp_get("state")
+
     if not code:
         return
+
+    expected = st.session_state.get("oauth_state")
+    if expected and state and state != expected:
+        st.error("Login-Callback konnte nicht validiert werden (state mismatch). Bitte erneut einloggen.")
+        _qp_clear()
+        st.stop()
 
     data = {
         "grant_type": "authorization_code",
@@ -189,7 +182,7 @@ def handle_callback():
         r = requests.post(TOKEN_URL, data=data, timeout=30)
     except requests.RequestException as e:
         st.error(f"Token request failed to send: {e}")
-        st.query_params.clear()
+        _qp_clear()
         st.stop()
 
     if r.status_code >= 400:
@@ -197,42 +190,28 @@ def handle_callback():
             body = r.json()
         except Exception:
             body = r.text
-
         st.error(f"Token exchange failed ({r.status_code}).\n\nResponse:\n{body}")
-        st.query_params.clear()
+        _qp_clear()
         st.stop()
 
-    try:
-        save_tokens(r.json())
-    except Exception as e:
-        st.error(f"Could not parse token response: {e}")
-        st.query_params.clear()
-        st.stop()
-
-    st.query_params.clear()
+    save_tokens(r.json())
+    _qp_clear()
 
 def _auth():
     return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
 
 def _auth_v2():
-    return {
-        **auth_header(st.session_state.oauth["access_token"]),
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
+    return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json", "Content-Type": "application/json"}
 
-# =========================
-# LOGIN PAGE (ONLY ONE, SCOPED)
-# =========================
-
-
+# -------------------------
+# Login page (ONLY ONE)
+# -------------------------
 def render_login_page():
     login_url = make_login_url()
 
     logo_b64 = ""
     if LOGO_PATH.exists():
         logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-
     brand_img = f"<img src='data:image/webp;base64,{logo_b64}' alt='logo' />" if logo_b64 else ""
 
     html = f"""
@@ -243,7 +222,7 @@ def render_login_page():
   footer {{ visibility: hidden !important; }}
   section[data-testid="stSidebar"] {{ display: none !important; }}
   div[data-testid="collapsedControl"] {{ display: none !important; }}
-  .block-container {{ padding-top: 0 !important; padding-bottom: 0 !important; max-width: 1100px; }}
+  .block-container {{ padding: 0 !important; max-width: 1100px; }}
 
   .lp-brand {{
     position: fixed; top: 18px; left: 22px; z-index: 9999;
@@ -308,10 +287,12 @@ def render_login_page():
     border-color: rgba(31, 92, 255, 0.55);
     color: #1f5cff !important;
   }}
+
   .lp-links {{ margin-top: 14px; display:grid; gap: 6px; font-size: 12px; color: rgba(15, 23, 42, 0.62); }}
   .lp-links a {{ color: #1f5cff; text-decoration: none; }}
   .lp-links a:hover {{ text-decoration: underline; }}
   .lp-note {{ margin-top: 14px; font-size: 12px; color: rgba(15, 23, 42, 0.55); }}
+  .lp-raw {{ margin-top: 10px; font-size: 11px; color: rgba(15, 23, 42, 0.50); word-break: break-all; }}
 </style>
 
 <div class="lp-brand">{brand_img}</div>
@@ -328,22 +309,23 @@ def render_login_page():
     <div class="lp-field-label">Passwort</div>
     <div class="lp-field">Passwort</div>
 
+    <!-- IMPORTANT: _top breaks out of iframe -> fixes "Verbindung verweigert" in many setups -->
     <div class="lp-actions">
-      <a class="btn btn-primary" href="{login_url}" target="_self" rel="noopener noreferrer">ANMELDUNG ↗</a>
-      <a class="btn btn-secondary" href="{login_url}" target="_self" rel="noopener noreferrer">Anmelden / Registrieren mit bexio</a>
+      <a class="btn btn-primary" href="{login_url}" target="_top" rel="noopener noreferrer">ANMELDUNG ↗</a>
+      <a class="btn btn-secondary" href="{login_url}" target="_top" rel="noopener noreferrer">Anmelden / Registrieren</a>
     </div>
 
     <div class="lp-links">
-      <div>Sie haben noch kein Konto? <a href="{login_url}" target="_self" rel="noopener noreferrer">Konto erstellen</a></div>
-      <div>Button reagiert nicht? <a href="{login_url}" target="_self" rel="noopener noreferrer">Login-Link öffnen</a></div>
+      <div>Sie haben noch kein Konto? <a href="{login_url}" target="_top" rel="noopener noreferrer">Konto erstellen</a></div>
+      <div>Button reagiert nicht? <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login in neuem Tab öffnen</a></div>
     </div>
 
     <div class="lp-note">Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.</div>
+    <div class="lp-raw">{login_url}</div>
   </div>
 </div>
 """
-    safe_html = "\n".join(line.lstrip() for line in html.splitlines())
-    st.markdown(safe_html, unsafe_allow_html=True)
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def _inject_local_css(file_path: Path = CSS_PATH):
