@@ -79,13 +79,7 @@ def ui_shell():
         unsafe_allow_html=True,
     )
 
-def _inject_local_css(file_path: Path = CSS_PATH):
-    try:
-        if file_path.exists():
-            css = file_path.read_text(encoding="utf-8")
-            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    except Exception:
-        pass
+
 
 # =========================
 # HEADER (APPLY ONLY AFTER LOGIN!)
@@ -230,6 +224,8 @@ def _auth_v2():
 # =========================
 # LOGIN PAGE (ONLY ONE, SCOPED)
 # =========================
+
+
 def render_login_page():
     login_url = make_login_url()
 
@@ -237,106 +233,63 @@ def render_login_page():
     if LOGO_PATH.exists():
         logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
 
-    st.markdown(
-        """
+    brand_img = f"<img src='data:image/webp;base64,{logo_b64}' alt='logo' />" if logo_b64 else ""
+
+    html = f"""
         <style>
-          /* scope: everything inside .lp-scope */
-          .lp-scope * { box-sizing: border-box; }
+          div[data-testid="stAppViewContainer"] {{ background: #f6f8fc !important; }}
+          header {{ display: none !important; }}
+          #MainMenu {{ visibility: hidden !important; }}
+          footer {{ visibility: hidden !important; }}
+          section[data-testid="stSidebar"] {{ display: none !important; }}
+          div[data-testid="collapsedControl"] {{ display: none !important; }}
+          .block-container {{ padding-top: 0 !important; padding-bottom: 0 !important; max-width: 1100px; }}
 
-          /* hard overrides while on login page */
-          div[data-testid="stAppViewContainer"] { background: #f6f8fc !important; }
-          header { display: none !important; }
-          #MainMenu { visibility: hidden !important; }
-          footer { visibility: hidden !important; }
-          section[data-testid="stSidebar"] { display: none !important; }
-          div[data-testid="collapsedControl"] { display: none !important; }
+          .lp-brand {{
+            position: fixed; top: 18px; left: 22px; z-index: 9999;
+            display: flex; align-items: center; gap: 10px;
+          }}
+          .lp-brand img {{ height: 26px; width: auto; display:block; }}
 
-          /* remove Streamlit padding while login is shown */
-          .block-container { padding-top: 0 !important; padding-bottom: 0 !important; max-width: 1200px; }
-
-          .lp-brand {
-            position: fixed;
-            top: 18px;
-            left: 22px;
-            z-index: 9999;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-          }
-          .lp-brand img { height: 26px; width: auto; display: block; }
-
-          .lp-scope{
+          .lp-wrap {{
             min-height: 100vh;
-            display:flex;
-            align-items:center;
-            justify-content:center;
+            display:flex; align-items:center; justify-content:center;
             padding: 28px;
             font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-          }
-
-          .lp-card {
-            width: 520px;
-            max-width: calc(100vw - 36px);
-            background: #ffffff;
+          }}
+          .lp-card {{
+            width: 520px; max-width: calc(100vw - 36px);
+            background: #fff;
             border: 1px solid rgba(15, 23, 42, 0.08);
             border-radius: 18px;
             box-shadow: 0 18px 60px rgba(15, 23, 42, 0.10);
             padding: 28px 28px 22px 28px;
-          }
-
-          .lp-hero {
-            width: 56px;
-            height: 56px;
-            border-radius: 14px;
+          }}
+          .lp-hero {{
+            width: 56px; height: 56px; border-radius: 14px;
             background: rgba(37, 99, 235, 0.08);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display:flex; align-items:center; justify-content:center;
             margin-bottom: 14px;
-          }
-          .lp-hero span { font-size: 26px; line-height: 1; }
+          }}
+          .lp-hero span {{ font-size: 26px; line-height: 1; }}
+          .lp-title {{ font-size: 30px; font-weight: 800; margin: 0 0 6px 0; color: #0f172a; }}
+          .lp-sub {{ font-size: 14px; line-height: 1.45; margin: 0 0 18px 0; color: rgba(15, 23, 42, 0.72); }}
 
-          .lp-title {
-            font-size: 30px;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            margin: 0 0 6px 0;
-            color: #0f172a;
-          }
-          .lp-sub {
-            font-size: 14px;
-            line-height: 1.45;
-            margin: 0 0 18px 0;
-            color: rgba(15, 23, 42, 0.72);
-          }
-
-          .lp-field-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: rgba(15, 23, 42, 0.70);
-            margin: 12px 0 6px 0;
-          }
-          .lp-field {
+          .lp-field-label {{ font-size: 12px; font-weight: 600; color: rgba(15, 23, 42, 0.70); margin: 12px 0 6px 0; }}
+          .lp-field {{
             width: 100%;
             border: 1px solid rgba(15, 23, 42, 0.12);
             border-radius: 10px;
-            padding: 12px 12px;
+            padding: 12px;
             background: #fff;
             color: rgba(15, 23, 42, 0.55);
             font-size: 14px;
-          }
+          }}
 
-          .lp-actions {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 16px;
-          }
+          .lp-actions {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }}
 
-          .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
+          .btn {{
+            display: inline-flex; align-items: center; justify-content: center;
             text-decoration: none !important;
             border-radius: 10px;
             padding: 12px 14px;
@@ -344,52 +297,26 @@ def render_login_page():
             font-size: 13px;
             border: 1px solid transparent;
             cursor: pointer;
-            user-select: none;
-          }
-          .btn-primary {
+          }}
+          .btn-primary {{
             background: #1f5cff;
             color: #fff !important;
             box-shadow: 0 10px 26px rgba(31, 92, 255, 0.22);
-          }
-          .btn-primary:hover { filter: brightness(0.98); }
-
-          .btn-secondary {
+          }}
+          .btn-secondary {{
             background: #fff;
             border-color: rgba(31, 92, 255, 0.55);
             color: #1f5cff !important;
-          }
-          .btn-secondary:hover { background: rgba(31, 92, 255, 0.05); }
-
-          .lp-links {
-            margin-top: 14px;
-            display: grid;
-            gap: 6px;
-            font-size: 12px;
-            color: rgba(15, 23, 42, 0.62);
-          }
-          .lp-links a { color: #1f5cff; text-decoration: none; }
-          .lp-links a:hover { text-decoration: underline; }
-
-          .lp-note {
-            margin-top: 14px;
-            font-size: 12px;
-            color: rgba(15, 23, 42, 0.55);
-          }
+          }}
+          .lp-links {{ margin-top: 14px; display:grid; gap: 6px; font-size: 12px; color: rgba(15, 23, 42, 0.62); }}
+          .lp-links a {{ color: #1f5cff; text-decoration: none; }}
+          .lp-links a:hover {{ text-decoration: underline; }}
+          .lp-note {{ margin-top: 14px; font-size: 12px; color: rgba(15, 23, 42, 0.55); }}
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
-    brand_html = f"""
-    <div class="lp-brand">
-      {f'<img src="data:image/webp;base64,{logo_b64}" alt="logo" />' if logo_b64 else ''}
-    </div>
-    """
+        <div class="lp-brand">{brand_img}</div>
 
-    st.markdown(
-        brand_html
-        + f"""
-        <div class="lp-scope">
+        <div class="lp-wrap">
           <div class="lp-card">
             <div class="lp-hero"><span>🔐</span></div>
             <div class="lp-title">Einloggen</div>
@@ -411,15 +338,21 @@ def render_login_page():
               <div>Button reagiert nicht? <a href="{login_url}" target="_self" rel="noopener noreferrer">Login-Link öffnen</a></div>
             </div>
 
-            <div class="lp-note">
-              Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.
-            </div>
+            <div class="lp-note">Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.</div>
           </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """
 
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+
+def _inject_local_css(file_path: Path = CSS_PATH):
+    try:
+        if file_path.exists():
+            css = file_path.read_text(encoding="utf-8")
+            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except Exception:
+        pass
+        
 # =========================
 # SESSION DEFAULTS
 # =========================
@@ -868,214 +801,6 @@ def make_login_url():
     }
     return f"{AUTH_URL}?{urlencode(params)}"
 
-def render_login_page():
-    login_url = make_login_url()
-
-    # --- logo as base64 (optional; works offline) ---
-    logo_b64 = ""
-    if LOGO_PATH.exists():
-        logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-
-    # --- Amnis-like CSS: soft bg, centered card, clean typography, two CTAs ---
-    st.markdown(
-        """
-        <style>
-          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-          /* Full app background */
-          div[data-testid="stAppViewContainer"] {
-            background: #f6f8fc;
-          }
-
-          /* Hide Streamlit chrome on login */
-          header { display: none; }
-          #MainMenu { visibility: hidden; }
-          footer { visibility: hidden; }
-
-          /* Hide sidebar ONLY on login page */
-          section[data-testid="stSidebar"] { display: none; }
-          div[data-testid="collapsedControl"] { display: none; }
-
-          /* Reduce top padding so it feels like a real web app */
-          .block-container {
-            padding-top: 28px !important;
-            padding-bottom: 40px !important;
-            max-width: 1100px;
-          }
-
-          .lp-brand {
-            position: fixed;
-            top: 18px;
-            left: 22px;
-            z-index: 10;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-          }
-          .lp-brand img {
-            height: 26px;
-            width: auto;
-            display: block;
-          }
-
-          .lp-wrap {
-            min-height: calc(100vh - 80px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-
-          .lp-card {
-            width: 520px;
-            max-width: calc(100vw - 36px);
-            background: #ffffff;
-            border: 1px solid rgba(15, 23, 42, 0.08);
-            border-radius: 18px;
-            box-shadow: 0 18px 60px rgba(15, 23, 42, 0.10);
-            padding: 28px 28px 22px 28px;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-          }
-
-          .lp-hero {
-            width: 56px;
-            height: 56px;
-            border-radius: 14px;
-            background: rgba(37, 99, 235, 0.08);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 14px;
-          }
-          .lp-hero span {
-            font-size: 26px;
-            line-height: 1;
-          }
-
-          .lp-title {
-            font-size: 30px;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            margin: 0 0 6px 0;
-            color: #0f172a;
-          }
-          .lp-sub {
-            font-size: 14px;
-            line-height: 1.45;
-            margin: 0 0 18px 0;
-            color: rgba(15, 23, 42, 0.72);
-          }
-
-          .lp-field-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: rgba(15, 23, 42, 0.70);
-            margin: 12px 0 6px 0;
-          }
-          .lp-field {
-            width: 100%;
-            border: 1px solid rgba(15, 23, 42, 0.12);
-            border-radius: 10px;
-            padding: 12px 12px;
-            background: #fff;
-            color: rgba(15, 23, 42, 0.55);
-            font-size: 14px;
-          }
-
-          .lp-actions {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-top: 16px;
-          }
-
-          .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            text-decoration: none !important;
-            border-radius: 10px;
-            padding: 12px 14px;
-            font-weight: 700;
-            font-size: 13px;
-            border: 1px solid transparent;
-            cursor: pointer;
-            user-select: none;
-          }
-          .btn-primary {
-            background: #1f5cff;
-            color: #fff !important;
-            box-shadow: 0 10px 26px rgba(31, 92, 255, 0.22);
-          }
-          .btn-primary:hover { filter: brightness(0.98); }
-
-          .btn-secondary {
-            background: #fff;
-            border-color: rgba(31, 92, 255, 0.55);
-            color: #1f5cff !important;
-          }
-          .btn-secondary:hover { background: rgba(31, 92, 255, 0.05); }
-
-          .lp-links {
-            margin-top: 14px;
-            display: grid;
-            gap: 6px;
-            font-size: 12px;
-            color: rgba(15, 23, 42, 0.62);
-          }
-          .lp-links a { color: #1f5cff; text-decoration: none; }
-          .lp-links a:hover { text-decoration: underline; }
-
-          .lp-note {
-            margin-top: 14px;
-            font-size: 12px;
-            color: rgba(15, 23, 42, 0.55);
-          }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    brand_html = f"""
-    <div class="lp-brand">
-      {f'<img src="data:image/webp;base64,{logo_b64}" alt="logo" />' if logo_b64 else ''}
-    </div>
-    """
-
-    # You can swap the emoji for an inline SVG if you want
-    st.markdown(
-        brand_html
-        + f"""
-        <div class="lp-wrap">
-          <div class="lp-card">
-            <div class="lp-hero"><span>🔐</span></div>
-            <div class="lp-title">Einloggen</div>
-            <div class="lp-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
-
-            <!-- Optional: fake fields for the Amnis look (purely visual) -->
-            <div class="lp-field-label">Geschäftliche E-Mail</div>
-            <div class="lp-field">Wie lautet Ihre geschäftliche E-Mail-Adresse?</div>
-
-            <div class="lp-field-label">Passwort</div>
-            <div class="lp-field">Passwort</div>
-
-            <div class="lp-actions">
-              <a class="btn btn-primary" href="{login_url}" target="_self" rel="noopener noreferrer">ANMELDUNG ↗</a>
-              <a class="btn btn-secondary" href="{login_url}" target="_self" rel="noopener noreferrer">Anmelden / Registrieren mit bexio</a>
-            </div>
-
-            <div class="lp-links">
-              <div>Sie haben noch kein Konto? <a href="{login_url}" target="_self" rel="noopener noreferrer">Konto erstellen</a></div>
-              <div>Button reagiert nicht? <a href="{login_url}" target="_self" rel="noopener noreferrer">Login-Link öffnen</a></div>
-            </div>
-
-            <div class="lp-note">
-              Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def auth_header(token):
@@ -1203,9 +928,16 @@ def fetch_all_accounts_v2(limit=2000):
 # =========================
 handle_callback()
 
+
 if need_login():
     render_login_page()
     st.stop()
+
+# only after login:
+ui_shell()
+_inject_local_css()
+render_solid_header()
+sidebar_nav()
 
 if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
