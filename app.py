@@ -1,3 +1,10 @@
+# app.py — WORKING version (login page + logo + header)
+# Key fixes:
+# 1) styles.css + ui_shell() are applied ONLY AFTER login (so they cannot override login page)
+# 2) Only ONE render_login_page() exists
+# 3) LOGO_PATH is robust (Path(__file__).parent / assets / logo.webp)
+# 4) Login CSS is scoped + uses !important where Streamlit tends to override
+
 import os, time, base64, io
 import pandas as pd
 import streamlit as st
@@ -10,16 +17,18 @@ import re
 from pathlib import Path
 import textwrap
 
-
-
-
-
 load_dotenv(override=True)
+
+# =========================
+# PATHS
+# =========================
+APP_DIR = Path(__file__).resolve().parent
+LOGO_PATH = APP_DIR / "assets" / "logo.webp"
+CSS_PATH = APP_DIR / "styles.css"
 
 # =========================
 # ENV + OAUTH HELPERS
 # =========================
-
 def _getenv(name: str, required=True, default=None):
     v = os.getenv(name, default)
     if required and (v is None or str(v).strip() == ""):
@@ -42,19 +51,20 @@ API_V2 = "https://api.bexio.com/2.0"
 SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
+
+# =========================
+# UI SHELL (APPLY ONLY AFTER LOGIN!)
+# =========================
 def ui_shell():
     st.markdown(
         """
         <style>
-        /* Hide Streamlit default chrome a bit */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {display: none;}
 
-        /* General spacing */
         .block-container { padding-top: 2.0rem; padding-bottom: 2.5rem; }
 
-        /* Card helper */
         .card {
             border: 1px solid rgba(49, 51, 63, 0.2);
             border-radius: 16px;
@@ -69,23 +79,26 @@ def ui_shell():
         unsafe_allow_html=True,
     )
 
-ui_shell()
+def _inject_local_css(file_path: Path = CSS_PATH):
+    try:
+        if file_path.exists():
+            css = file_path.read_text(encoding="utf-8")
+            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except Exception:
+        pass
 
-
-LOGO_PATH = Path("assets/logo.webp")
-
-def render_solid_header(title="Accounting Pilot", logo_px=36):
+# =========================
+# HEADER (APPLY ONLY AFTER LOGIN!)
+# =========================
+def render_solid_header(title="Accounting Pilot", logo_px=34):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f"""
-        <img class="solid-logo" src="data:image/webp;base64,{b64}" />
-        """
+        logo_html = f"""<img class="solid-logo" src="data:image/webp;base64,{b64}" alt="logo" />"""
 
     st.markdown(
         f"""
         <style>
-          /* only affects the header */
           .solid-header {{
             position: sticky;
             top: 0;
@@ -94,7 +107,7 @@ def render_solid_header(title="Accounting Pilot", logo_px=36):
             border-bottom: 1px solid rgba(0,0,0,0.08);
             box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
             padding: 12px 16px;
-            margin: 0 0 1rem 0;       /* ✅ no negative margin => no clipping */
+            margin: 0 0 1rem 0;
             border-radius: 14px;
           }}
           .solid-header-inner {{
@@ -108,7 +121,7 @@ def render_solid_header(title="Accounting Pilot", logo_px=36):
             display: block;
           }}
           .solid-title {{
-            font-size: 1.35rem;
+            font-size: 1.15rem;
             font-weight: 850;
             margin: 0;
             line-height: 1.1;
@@ -119,30 +132,355 @@ def render_solid_header(title="Accounting Pilot", logo_px=36):
         <div class="solid-header">
           <div class="solid-header-inner">
             {logo_html}
+            <div class="solid-title">{title}</div>
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-
-
 # =========================
-# THEME CSS (optional)
+# AUTH HELPERS
 # =========================
-def _inject_local_css(file_path: str = "styles.css"):
+def make_login_url():
+    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
+    params = {
+        "client_id": BEXIO_CLIENT_ID,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": state,
+    }
+    return f"{AUTH_URL}?{urlencode(params)}"
+
+def auth_header(token):
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+def save_tokens(tokens):
+    tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
+    st.session_state.oauth = tokens
+
+def need_login():
+    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
+
+def refresh_access_token():
+    if not st.session_state.oauth.get("refresh_token"):
+        return
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": st.session_state.oauth["refresh_token"],
+        "client_id": BEXIO_CLIENT_ID,
+        "client_secret": BEXIO_CLIENT_SECRET,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+    }
+    r = requests.post(TOKEN_URL, data=data, timeout=30)
+    r.raise_for_status()
+    save_tokens(r.json())
+
+def handle_callback():
+    qp = st.query_params
+    code = qp.get("code")
+    if not code:
+        return
+
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "client_id": BEXIO_CLIENT_ID,
+        "client_secret": BEXIO_CLIENT_SECRET,
+    }
+
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except Exception:
-        pass
+        r = requests.post(TOKEN_URL, data=data, timeout=30)
+    except requests.RequestException as e:
+        st.error(f"Token request failed to send: {e}")
+        st.query_params.clear()
+        st.stop()
 
-_inject_local_css()
+    if r.status_code >= 400:
+        try:
+            body = r.json()
+        except Exception:
+            body = r.text
+
+        st.error(f"Token exchange failed ({r.status_code}).\n\nResponse:\n{body}")
+        st.query_params.clear()
+        st.stop()
+
+    try:
+        save_tokens(r.json())
+    except Exception as e:
+        st.error(f"Could not parse token response: {e}")
+        st.query_params.clear()
+        st.stop()
+
+    st.query_params.clear()
+
+def _auth():
+    return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
+
+def _auth_v2():
+    return {
+        **auth_header(st.session_state.oauth["access_token"]),
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
 
 # =========================
-# SCHEMA & HELPERS
+# LOGIN PAGE (ONLY ONE, SCOPED)
 # =========================
+def render_login_page():
+    login_url = make_login_url()
 
+    logo_b64 = ""
+    if LOGO_PATH.exists():
+        logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+
+    st.markdown(
+        """
+        <style>
+          /* scope: everything inside .lp-scope */
+          .lp-scope * { box-sizing: border-box; }
+
+          /* hard overrides while on login page */
+          div[data-testid="stAppViewContainer"] { background: #f6f8fc !important; }
+          header { display: none !important; }
+          #MainMenu { visibility: hidden !important; }
+          footer { visibility: hidden !important; }
+          section[data-testid="stSidebar"] { display: none !important; }
+          div[data-testid="collapsedControl"] { display: none !important; }
+
+          /* remove Streamlit padding while login is shown */
+          .block-container { padding-top: 0 !important; padding-bottom: 0 !important; max-width: 1200px; }
+
+          .lp-brand {
+            position: fixed;
+            top: 18px;
+            left: 22px;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .lp-brand img { height: 26px; width: auto; display: block; }
+
+          .lp-scope{
+            min-height: 100vh;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding: 28px;
+            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+          }
+
+          .lp-card {
+            width: 520px;
+            max-width: calc(100vw - 36px);
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 18px;
+            box-shadow: 0 18px 60px rgba(15, 23, 42, 0.10);
+            padding: 28px 28px 22px 28px;
+          }
+
+          .lp-hero {
+            width: 56px;
+            height: 56px;
+            border-radius: 14px;
+            background: rgba(37, 99, 235, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 14px;
+          }
+          .lp-hero span { font-size: 26px; line-height: 1; }
+
+          .lp-title {
+            font-size: 30px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin: 0 0 6px 0;
+            color: #0f172a;
+          }
+          .lp-sub {
+            font-size: 14px;
+            line-height: 1.45;
+            margin: 0 0 18px 0;
+            color: rgba(15, 23, 42, 0.72);
+          }
+
+          .lp-field-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(15, 23, 42, 0.70);
+            margin: 12px 0 6px 0;
+          }
+          .lp-field {
+            width: 100%;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            border-radius: 10px;
+            padding: 12px 12px;
+            background: #fff;
+            color: rgba(15, 23, 42, 0.55);
+            font-size: 14px;
+          }
+
+          .lp-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 16px;
+          }
+
+          .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none !important;
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-weight: 700;
+            font-size: 13px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            user-select: none;
+          }
+          .btn-primary {
+            background: #1f5cff;
+            color: #fff !important;
+            box-shadow: 0 10px 26px rgba(31, 92, 255, 0.22);
+          }
+          .btn-primary:hover { filter: brightness(0.98); }
+
+          .btn-secondary {
+            background: #fff;
+            border-color: rgba(31, 92, 255, 0.55);
+            color: #1f5cff !important;
+          }
+          .btn-secondary:hover { background: rgba(31, 92, 255, 0.05); }
+
+          .lp-links {
+            margin-top: 14px;
+            display: grid;
+            gap: 6px;
+            font-size: 12px;
+            color: rgba(15, 23, 42, 0.62);
+          }
+          .lp-links a { color: #1f5cff; text-decoration: none; }
+          .lp-links a:hover { text-decoration: underline; }
+
+          .lp-note {
+            margin-top: 14px;
+            font-size: 12px;
+            color: rgba(15, 23, 42, 0.55);
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    brand_html = f"""
+    <div class="lp-brand">
+      {f'<img src="data:image/webp;base64,{logo_b64}" alt="logo" />' if logo_b64 else ''}
+    </div>
+    """
+
+    st.markdown(
+        brand_html
+        + f"""
+        <div class="lp-scope">
+          <div class="lp-card">
+            <div class="lp-hero"><span>🔐</span></div>
+            <div class="lp-title">Einloggen</div>
+            <div class="lp-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
+
+            <div class="lp-field-label">Geschäftliche E-Mail</div>
+            <div class="lp-field">Wie lautet Ihre geschäftliche E-Mail-Adresse?</div>
+
+            <div class="lp-field-label">Passwort</div>
+            <div class="lp-field">Passwort</div>
+
+            <div class="lp-actions">
+              <a class="btn btn-primary" href="{login_url}" target="_self" rel="noopener noreferrer">ANMELDUNG ↗</a>
+              <a class="btn btn-secondary" href="{login_url}" target="_self" rel="noopener noreferrer">Anmelden / Registrieren mit bexio</a>
+            </div>
+
+            <div class="lp-links">
+              <div>Sie haben noch kein Konto? <a href="{login_url}" target="_self" rel="noopener noreferrer">Konto erstellen</a></div>
+              <div>Button reagiert nicht? <a href="{login_url}" target="_self" rel="noopener noreferrer">Login-Link öffnen</a></div>
+            </div>
+
+            <div class="lp-note">
+              Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# =========================
+# SESSION DEFAULTS
+# =========================
+if "step" not in st.session_state:
+    st.session_state.step = 1
+if "oauth" not in st.session_state:
+    st.session_state.oauth = {}
+if "acct_map_by_number" not in st.session_state:
+    st.session_state.acct_map_by_number = {}
+if "acct_df" not in st.session_state:
+    st.session_state.acct_df = None
+if "selected_bank_number" not in st.session_state:
+    st.session_state.selected_bank_number = None
+if "bank_csv_df" not in st.session_state:
+    st.session_state.bank_csv_df = None
+if "bank_csv_view_df" not in st.session_state:
+    st.session_state.bank_csv_view_df = None
+if "bank_start_row" not in st.session_state:
+    st.session_state.bank_start_row = 1
+if "bank_map" not in st.session_state:
+    st.session_state.bank_map = {"datum": None, "betrag": None, "beschreibung": None}
+if "bulk_df" not in st.session_state:
+    st.session_state.bulk_df = None
+
+DEFAULT_CURRENCY_CODE = "CHF"
+DEFAULT_CURRENCY_ID = 1
+DEFAULT_CURRENCY_FACTOR = 1.0
+
+# =========================
+# SIDEBAR NAV
+# =========================
+STEP_LABELS = {
+    1: "1) Kontenplan",
+    2: "2) Bankdatei",
+    3: "3) Kontrolle & Import",
+}
+
+def sidebar_nav():
+    st.sidebar.markdown("### Navigation")
+    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
+    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
+
+    chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
+
+    new_step = {v: k for k, v in STEP_LABELS.items()}[chosen]
+    if new_step != st.session_state.step:
+        st.session_state.step = new_step
+        st.rerun()
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
+        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
+                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.session_state.step = 1
+        st.rerun()
+
+# =========================
+# SCHEMA & HELPERS (UNCHANGED FROM YOUR APP)
+# =========================
 def _ensure_currency_code_map():
     if st.session_state.get("currency_code_to_id"):
         return
@@ -156,7 +494,6 @@ def _ensure_currency_code_map():
             except Exception:
                 continue
 
-            # bexio currency create uses field 'name' like 'JPY' (ISO) in many clients
             code = (
                 c.get("name")
                 or c.get("code")
@@ -189,13 +526,11 @@ def _ensure_currency_code_map():
 
     st.session_state.currency_code_to_id = mp
 
-
 def _currency_id_from_input(val: str | int | None) -> int | None:
     s = ("" if val is None else str(val)).strip()
     if not s:
         return int(DEFAULT_CURRENCY_ID)
 
-    # numeric currency_id allowed
     try:
         return int(float(s))
     except Exception:
@@ -203,7 +538,6 @@ def _currency_id_from_input(val: str | int | None) -> int | None:
 
     code = s.upper()
 
-    # env override: BEXIO_CURRENCY_ID_EUR=2, etc.
     env_key = f"BEXIO_CURRENCY_ID_{code}"
     env_val = os.getenv(env_key)
     if env_val:
@@ -215,18 +549,15 @@ def _currency_id_from_input(val: str | int | None) -> int | None:
     _ensure_currency_code_map()
     return st.session_state.get("currency_code_to_id", {}).get(code)
 
-
-# VAT helpers and defaults
 VAT_CODE_TO_RATE = {
-    "UN81": 0.081,  # Standard (8.1%)
-    "UR26": 0.026,  # Reduced
-    "US38": 0.038,  # Special
+    "UN81": 0.081,
+    "UR26": 0.026,
+    "US38": 0.038,
 }
-DEFAULT_VAT_INPUT_ACCOUNT_NO  = "1170"  # Vorsteuer
-DEFAULT_VAT_OUTPUT_ACCOUNT_NO = "2201"  # Umsatzsteuer (geschuldete MWST)
+DEFAULT_VAT_INPUT_ACCOUNT_NO  = "1170"
+DEFAULT_VAT_OUTPUT_ACCOUNT_NO = "2201"
 
 def _parse_vat_rate(val) -> float | None:
-    """Accepts codes (UN81, UR26, …) or numeric (0.081 or 8.1 or '8.1%')."""
     if val is None:
         return None
     s = str(val).strip()
@@ -241,7 +572,6 @@ def _parse_vat_rate(val) -> float | None:
     except Exception:
         return None
 
-# Extended schema: add the two new columns at the END (as requested)
 REQUIRED_COLS = [
     "csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung",
     "mwst_code", "mwst_konto",
@@ -255,15 +585,12 @@ def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
     for c in REQUIRED_COLS:
         df[c] = df_in[c] if c in df_in.columns else ""
 
-    # dtypes that play nicely with st.data_editor
     try:
         df["csv_row"] = pd.to_numeric(df["csv_row"], errors="coerce").astype("Int64")
     except Exception:
         df["csv_row"] = pd.Series([pd.NA] * len(df), dtype="Int64")
 
     df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
-
-    # NEW
     df["exchange_rate"] = pd.to_numeric(df["exchange_rate"], errors="coerce").astype(float)
     df["currency"] = df["currency"].replace({None: ""}).fillna("").astype(str)
 
@@ -273,7 +600,6 @@ def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
         df[c] = df[c].replace({"None": "", "nan": "", "<NA>": ""})
 
     return df
-
 
 def _parse_date_to_iso(x: str) -> str:
     s = (str(x) if x is not None else "").strip()
