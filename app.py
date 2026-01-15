@@ -1,34 +1,24 @@
-# app.py — WORKING version (login page + logo + header)
-# Key fixes:
-# 1) styles.css + ui_shell() are applied ONLY AFTER login (so they cannot override login page)
-# 2) Only ONE render_login_page() exists
-# 3) LOGO_PATH is robust (Path(__file__).parent / assets / logo.webp)
-# 4) Login CSS is scoped + uses !important where Streamlit tends to override
-
-import os, time, base64, io
-import pandas as pd
-import streamlit as st
-import requests
-import math, random
-from urllib.parse import urlencode
-from dotenv import load_dotenv
-from datetime import date as dt_date
-import re
+import os, time, base64
 from pathlib import Path
-import textwrap
+from urllib.parse import urlencode
+
+import requests
+import streamlit as st
+import streamlit.components.v1 as components
+from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# =========================
+# -------------------------
 # PATHS
-# =========================
+# -------------------------
 APP_DIR = Path(__file__).resolve().parent
 LOGO_PATH = APP_DIR / "assets" / "logo.webp"
-CSS_PATH = APP_DIR / "styles.css"
+CSS_PATH  = APP_DIR / "styles.css"
 
-# =========================
-# ENV + OAUTH HELPERS
-# =========================
+# -------------------------
+# ENV
+# -------------------------
 def _getenv(name: str, required=True, default=None):
     v = os.getenv(name, default)
     if required and (v is None or str(v).strip() == ""):
@@ -42,19 +32,101 @@ BEXIO_REDIRECT_URI  = _getenv("BEXIO_REDIRECT_URI")
 
 AUTH_URL  = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/auth"
 TOKEN_URL = "https://auth.bexio.com/realms/bexio/protocol/openid-connect/token"
-
-API_V3 = "https://api.bexio.com/3.0"
-MANUAL_ENTRIES_V3 = f"{API_V3}/accounting/manual_entries"
-NEXT_REF_V3       = f"{API_V3}/accounting/manual_entries/next_ref_nr"
-API_V2 = "https://api.bexio.com/2.0"
-
-SCOPES = "openid profile email offline_access company_profile"
+SCOPES    = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
 
-# =========================
-# UI SHELL (APPLY ONLY AFTER LOGIN!)
-# =========================
+# -------------------------
+# SESSION DEFAULTS (ONLY ONCE)
+# -------------------------
+if "oauth" not in st.session_state:
+    st.session_state.oauth = {}
+if "login_state" not in st.session_state:
+    st.session_state.login_state = None
+
+# -------------------------
+# AUTH HELPERS
+# -------------------------
+def make_login_url():
+    # store state to validate callback
+    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(18)).decode("utf-8")
+    st.session_state.login_state = state
+
+    params = {
+        "client_id": BEXIO_CLIENT_ID,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": state,
+    }
+    return f"{AUTH_URL}?{urlencode(params)}"
+
+def save_tokens(tokens: dict):
+    tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
+    st.session_state.oauth = tokens
+
+def need_login():
+    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
+
+def refresh_access_token():
+    if not st.session_state.oauth.get("refresh_token"):
+        return
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": st.session_state.oauth["refresh_token"],
+        "client_id": BEXIO_CLIENT_ID,
+        "client_secret": BEXIO_CLIENT_SECRET,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+    }
+    r = requests.post(TOKEN_URL, data=data, timeout=30)
+    r.raise_for_status()
+    save_tokens(r.json())
+
+def handle_callback():
+    qp = st.query_params
+
+    code = qp.get("code")
+    state = qp.get("state")
+
+    # Streamlit can return list values – normalize
+    if isinstance(code, list): code = code[0] if code else None
+    if isinstance(state, list): state = state[0] if state else None
+
+    if not code:
+        return
+
+    # validate state (optional but recommended)
+    expected = st.session_state.get("login_state")
+    if expected and state and state != expected:
+        st.error("Login state mismatch (CSRF protection). Please try again.")
+        st.query_params.clear()
+        st.stop()
+
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "client_id": BEXIO_CLIENT_ID,
+        "client_secret": BEXIO_CLIENT_SECRET,
+    }
+
+    r = requests.post(TOKEN_URL, data=data, timeout=30)
+
+    if r.status_code >= 400:
+        st.error(f"Token exchange failed ({r.status_code}).")
+        st.code(r.text)
+        st.query_params.clear()
+        st.stop()
+
+    save_tokens(r.json())
+    st.query_params.clear()
+
+    # ensure URL is clean + UI updates immediately
+    st.rerun()
+
+# -------------------------
+# UI HELPERS (ONLY AFTER LOGIN)
+# -------------------------
 def ui_shell():
     st.markdown(
         """
@@ -62,28 +134,20 @@ def ui_shell():
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {display: none;}
-
         .block-container { padding-top: 2.0rem; padding-bottom: 2.5rem; }
-
-        .card {
-            border: 1px solid rgba(49, 51, 63, 0.2);
-            border-radius: 16px;
-            padding: 18px 18px;
-            background: rgba(255,255,255,0.02);
-        }
-        .muted { opacity: 0.8; }
-        .big-title { font-size: 2.0rem; font-weight: 700; margin: 0 0 0.3rem 0; }
-        .subtle { opacity: 0.85; margin-top: 0.2rem; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+def _inject_local_css(file_path: Path = CSS_PATH):
+    try:
+        if file_path.exists():
+            css = file_path.read_text(encoding="utf-8")
+            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except Exception:
+        pass
 
-
-# =========================
-# HEADER (APPLY ONLY AFTER LOGIN!)
-# =========================
 def render_solid_header(title="Accounting Pilot", logo_px=34):
     logo_html = ""
     if LOGO_PATH.exists():
@@ -94,9 +158,7 @@ def render_solid_header(title="Accounting Pilot", logo_px=34):
         f"""
         <style>
           .solid-header {{
-            position: sticky;
-            top: 0;
-            z-index: 9999;
+            position: sticky; top: 0; z-index: 9999;
             background: white;
             border-bottom: 1px solid rgba(0,0,0,0.08);
             box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
@@ -105,24 +167,11 @@ def render_solid_header(title="Accounting Pilot", logo_px=34):
             border-radius: 14px;
           }}
           .solid-header-inner {{
-            display: flex;
-            align-items: center;
-            gap: 12px;
+            display: flex; align-items: center; gap: 12px;
           }}
-          .solid-logo {{
-            height: {logo_px}px;
-            width: auto;
-            display: block;
-          }}
-          .solid-title {{
-            font-size: 1.15rem;
-            font-weight: 850;
-            margin: 0;
-            line-height: 1.1;
-            color: #0F1D2B;
-          }}
+          .solid-logo {{ height: {logo_px}px; width: auto; display:block; }}
+          .solid-title {{ font-size: 1.15rem; font-weight: 850; color:#0F1D2B; }}
         </style>
-
         <div class="solid-header">
           <div class="solid-header-inner">
             {logo_html}
@@ -133,817 +182,109 @@ def render_solid_header(title="Accounting Pilot", logo_px=34):
         unsafe_allow_html=True,
     )
 
-# =========================
-# AUTH HELPERS
-# =========================
-def make_login_url():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
-    params = {
-        "client_id": BEXIO_CLIENT_ID,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "response_type": "code",
-        "scope": SCOPES,
-        "state": state,
-    }
-    return f"{AUTH_URL}?{urlencode(params)}"
-
-def auth_header(token):
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
-def save_tokens(tokens):
-    tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
-    st.session_state.oauth = tokens
-
-def need_login():
-    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
-
-def refresh_access_token():
-    if not st.session_state.oauth.get("refresh_token"):
-        return
-    data = {
-        "grant_type": "refresh_token",
-        "refresh_token": st.session_state.oauth["refresh_token"],
-        "client_id": BEXIO_CLIENT_ID,
-        "client_secret": BEXIO_CLIENT_SECRET,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-    }
-    r = requests.post(TOKEN_URL, data=data, timeout=30)
-    r.raise_for_status()
-    save_tokens(r.json())
-
-def handle_callback():
-    qp = st.query_params
-    code = qp.get("code")
-    if not code:
-        return
-
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "client_id": BEXIO_CLIENT_ID,
-        "client_secret": BEXIO_CLIENT_SECRET,
-    }
-
-    try:
-        r = requests.post(TOKEN_URL, data=data, timeout=30)
-    except requests.RequestException as e:
-        st.error(f"Token request failed to send: {e}")
-        st.query_params.clear()
-        st.stop()
-
-    if r.status_code >= 400:
-        try:
-            body = r.json()
-        except Exception:
-            body = r.text
-
-        st.error(f"Token exchange failed ({r.status_code}).\n\nResponse:\n{body}")
-        st.query_params.clear()
-        st.stop()
-
-    try:
-        save_tokens(r.json())
-    except Exception as e:
-        st.error(f"Could not parse token response: {e}")
-        st.query_params.clear()
-        st.stop()
-
-    st.query_params.clear()
-
-def _auth():
-    return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
-
-def _auth_v2():
-    return {
-        **auth_header(st.session_state.oauth["access_token"]),
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
-
-# =========================
-# LOGIN PAGE (ONLY ONE, SCOPED)
-# =========================
-
-
+# -------------------------
+# LOGIN PAGE (render with components.html => never shows as raw text)
+# -------------------------
 def render_login_page():
     login_url = make_login_url()
 
     logo_b64 = ""
     if LOGO_PATH.exists():
         logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-
     brand_img = f"<img src='data:image/webp;base64,{logo_b64}' alt='logo' />" if logo_b64 else ""
 
     html = f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
 <style>
-  div[data-testid="stAppViewContainer"] {{ background: #f6f8fc !important; }}
-  header {{ display: none !important; }}
-  #MainMenu {{ visibility: hidden !important; }}
-  footer {{ visibility: hidden !important; }}
-  section[data-testid="stSidebar"] {{ display: none !important; }}
-  div[data-testid="collapsedControl"] {{ display: none !important; }}
-  .block-container {{ padding-top: 0 !important; padding-bottom: 0 !important; max-width: 1100px; }}
-
-  .lp-brand {{
-    position: fixed; top: 18px; left: 22px; z-index: 9999;
-    display: flex; align-items: center; gap: 10px;
-  }}
-  .lp-brand img {{ height: 26px; width: auto; display:block; }}
-
-  .lp-wrap {{
-    min-height: 100vh;
-    display:flex; align-items:center; justify-content:center;
-    padding: 28px;
-    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  }}
+  body {{ margin:0; background:#f6f8fc; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }}
+  .lp-brand {{ position: fixed; top:18px; left:22px; z-index: 9999; }}
+  .lp-brand img {{ height:26px; width:auto; display:block; }}
+  .lp-wrap {{ min-height: 100vh; display:flex; align-items:center; justify-content:center; padding:28px; }}
   .lp-card {{
-    width: 520px; max-width: calc(100vw - 36px);
-    background: #fff;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 18px;
-    box-shadow: 0 18px 60px rgba(15, 23, 42, 0.10);
-    padding: 28px 28px 22px 28px;
+    width:520px; max-width: calc(100vw - 36px);
+    background:#fff; border:1px solid rgba(15,23,42,0.08);
+    border-radius:18px; box-shadow:0 18px 60px rgba(15,23,42,0.10);
+    padding:28px 28px 22px 28px;
   }}
-  .lp-hero {{
-    width: 56px; height: 56px; border-radius: 14px;
-    background: rgba(37, 99, 235, 0.08);
-    display:flex; align-items:center; justify-content:center;
-    margin-bottom: 14px;
-  }}
-  .lp-hero span {{ font-size: 26px; line-height: 1; }}
-  .lp-title {{ font-size: 30px; font-weight: 800; margin: 0 0 6px 0; color: #0f172a; }}
-  .lp-sub {{ font-size: 14px; line-height: 1.45; margin: 0 0 18px 0; color: rgba(15, 23, 42, 0.72); }}
-
-  .lp-field-label {{ font-size: 12px; font-weight: 600; color: rgba(15, 23, 42, 0.70); margin: 12px 0 6px 0; }}
-  .lp-field {{
-    width: 100%;
-    border: 1px solid rgba(15, 23, 42, 0.12);
-    border-radius: 10px;
-    padding: 12px;
-    background: #fff;
-    color: rgba(15, 23, 42, 0.55);
-    font-size: 14px;
-  }}
-
-  .lp-actions {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }}
-
-  .btn {{
-    display: inline-flex; align-items: center; justify-content: center;
-    text-decoration: none !important;
-    border-radius: 10px;
-    padding: 12px 14px;
-    font-weight: 700;
-    font-size: 13px;
-    border: 1px solid transparent;
-    cursor: pointer;
-  }}
-  .btn-primary {{
-    background: #1f5cff;
-    color: #fff !important;
-    box-shadow: 0 10px 26px rgba(31, 92, 255, 0.22);
-  }}
-  .btn-secondary {{
-    background: #fff;
-    border-color: rgba(31, 92, 255, 0.55);
-    color: #1f5cff !important;
-  }}
-  .lp-links {{ margin-top: 14px; display:grid; gap: 6px; font-size: 12px; color: rgba(15, 23, 42, 0.62); }}
-  .lp-links a {{ color: #1f5cff; text-decoration: none; }}
-  .lp-links a:hover {{ text-decoration: underline; }}
-  .lp-note {{ margin-top: 14px; font-size: 12px; color: rgba(15, 23, 42, 0.55); }}
+  .lp-hero {{ width:56px; height:56px; border-radius:14px; background: rgba(37,99,235,0.08);
+              display:flex; align-items:center; justify-content:center; margin-bottom:14px; }}
+  .lp-title {{ font-size:30px; font-weight:800; margin:0 0 6px 0; color:#0f172a; }}
+  .lp-sub {{ font-size:14px; line-height:1.45; margin:0 0 18px 0; color: rgba(15,23,42,0.72); }}
+  .lp-field-label {{ font-size:12px; font-weight:600; color: rgba(15,23,42,0.70); margin: 12px 0 6px 0; }}
+  .lp-field {{ width:100%; border:1px solid rgba(15,23,42,0.12); border-radius:10px; padding:12px; color: rgba(15,23,42,0.55); }}
+  .lp-actions {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }}
+  .btn {{ display:inline-flex; align-items:center; justify-content:center; border-radius:10px; padding:12px 14px;
+          font-weight:700; font-size:13px; text-decoration:none; border:1px solid transparent; }}
+  .btn-primary {{ background:#1f5cff; color:#fff; box-shadow:0 10px 26px rgba(31,92,255,0.22); }}
+  .btn-secondary {{ background:#fff; border-color: rgba(31,92,255,0.55); color:#1f5cff; }}
+  .lp-note {{ margin-top:14px; font-size:12px; color: rgba(15,23,42,0.55); }}
 </style>
+</head>
+<body>
+  <div class="lp-brand">{brand_img}</div>
 
-<div class="lp-brand">{brand_img}</div>
+  <div class="lp-wrap">
+    <div class="lp-card">
+      <div class="lp-hero"><span style="font-size:26px;">🔐</span></div>
+      <div class="lp-title">Einloggen</div>
+      <div class="lp-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
 
-<div class="lp-wrap">
-  <div class="lp-card">
-    <div class="lp-hero"><span>🔐</span></div>
-    <div class="lp-title">Einloggen</div>
-    <div class="lp-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
+      <div class="lp-field-label">Geschäftliche E-Mail</div>
+      <div class="lp-field">Wie lautet Ihre geschäftliche E-Mail-Adresse?</div>
 
-    <div class="lp-field-label">Geschäftliche E-Mail</div>
-    <div class="lp-field">Wie lautet Ihre geschäftliche E-Mail-Adresse?</div>
+      <div class="lp-field-label">Passwort</div>
+      <div class="lp-field">Passwort</div>
 
-    <div class="lp-field-label">Passwort</div>
-    <div class="lp-field">Passwort</div>
+      <div class="lp-actions">
+        <a class="btn btn-primary" href="{login_url}">Anmelden ↗</a>
+        <a class="btn btn-secondary" href="{login_url}">Mit bexio anmelden</a>
+      </div>
 
-    <div class="lp-actions">
-      <a class="btn btn-primary" href="{login_url}" target="_self" rel="noopener noreferrer">ANMELDUNG ↗</a>
-      <a class="btn btn-secondary" href="{login_url}" target="_self" rel="noopener noreferrer">Anmelden / Registrieren mit bexio</a>
+      <div class="lp-note">Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.</div>
     </div>
-
-    <div class="lp-links">
-      <div>Sie haben noch kein Konto? <a href="{login_url}" target="_self" rel="noopener noreferrer">Konto erstellen</a></div>
-      <div>Button reagiert nicht? <a href="{login_url}" target="_self" rel="noopener noreferrer">Login-Link öffnen</a></div>
-    </div>
-
-    <div class="lp-note">Hinweis: Du wirst zu bexio weitergeleitet und danach zurück in diese App.</div>
   </div>
-</div>
+</body>
+</html>
 """
-    st.markdown(html.strip(), unsafe_allow_html=True)
-
-
-def _inject_local_css(file_path: Path = CSS_PATH):
-    try:
-        if file_path.exists():
-            css = file_path.read_text(encoding="utf-8")
-            st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    except Exception:
-        pass
-        
-# =========================
-# SESSION DEFAULTS
-# =========================
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "oauth" not in st.session_state:
-    st.session_state.oauth = {}
-if "acct_map_by_number" not in st.session_state:
-    st.session_state.acct_map_by_number = {}
-if "acct_df" not in st.session_state:
-    st.session_state.acct_df = None
-if "selected_bank_number" not in st.session_state:
-    st.session_state.selected_bank_number = None
-if "bank_csv_df" not in st.session_state:
-    st.session_state.bank_csv_df = None
-if "bank_csv_view_df" not in st.session_state:
-    st.session_state.bank_csv_view_df = None
-if "bank_start_row" not in st.session_state:
-    st.session_state.bank_start_row = 1
-if "bank_map" not in st.session_state:
-    st.session_state.bank_map = {"datum": None, "betrag": None, "beschreibung": None}
-if "bulk_df" not in st.session_state:
-    st.session_state.bulk_df = None
-
-DEFAULT_CURRENCY_CODE = "CHF"
-DEFAULT_CURRENCY_ID = 1
-DEFAULT_CURRENCY_FACTOR = 1.0
-
-# =========================
-# SIDEBAR NAV
-# =========================
-STEP_LABELS = {
-    1: "1) Kontenplan",
-    2: "2) Bankdatei",
-    3: "3) Kontrolle & Import",
-}
-
-def sidebar_nav():
-    st.sidebar.markdown("### Navigation")
-    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
-    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
-
-    chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
-
-    new_step = {v: k for k, v in STEP_LABELS.items()}[chosen]
-    if new_step != st.session_state.step:
-        st.session_state.step = new_step
-        st.rerun()
-
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
-        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
-            if k in st.session_state:
-                del st.session_state[k]
-        st.session_state.step = 1
-        st.rerun()
-
-# =========================
-# SCHEMA & HELPERS (UNCHANGED FROM YOUR APP)
-# =========================
-def _ensure_currency_code_map():
-    if st.session_state.get("currency_code_to_id"):
-        return
-
-    mp = {}
-
-    def _ingest(items):
-        for c in items or []:
-            try:
-                cid = int(c.get("id"))
-            except Exception:
-                continue
-
-            code = (
-                c.get("name")
-                or c.get("code")
-                or c.get("currency_code")
-                or c.get("short_name")
-            )
-            if code:
-                mp.setdefault(str(code).upper().strip(), cid)
-
-    endpoints = [
-        f"{API_V3}/currencies",
-        f"{API_V3}/accounting/currencies",
-        f"{API_V2}/currencies",
-    ]
-
-    for url in endpoints:
-        try:
-            r = requests.get(url, headers=_auth() if "/3.0" in url else _auth_v2(), timeout=30)
-            if r.status_code == 401:
-                refresh_access_token()
-                r = requests.get(url, headers=_auth() if "/3.0" in url else _auth_v2(), timeout=30)
-            if r.status_code < 400:
-                data = r.json()
-                if isinstance(data, list):
-                    _ingest(data)
-                if mp:
-                    break
-        except Exception:
-            pass
-
-    st.session_state.currency_code_to_id = mp
-
-def _currency_id_from_input(val: str | int | None) -> int | None:
-    s = ("" if val is None else str(val)).strip()
-    if not s:
-        return int(DEFAULT_CURRENCY_ID)
-
-    try:
-        return int(float(s))
-    except Exception:
-        pass
-
-    code = s.upper()
-
-    env_key = f"BEXIO_CURRENCY_ID_{code}"
-    env_val = os.getenv(env_key)
-    if env_val:
-        try:
-            return int(env_val)
-        except Exception:
-            pass
-
-    _ensure_currency_code_map()
-    return st.session_state.get("currency_code_to_id", {}).get(code)
-
-VAT_CODE_TO_RATE = {
-    "UN81": 0.081,
-    "UR26": 0.026,
-    "US38": 0.038,
-}
-DEFAULT_VAT_INPUT_ACCOUNT_NO  = "1170"
-DEFAULT_VAT_OUTPUT_ACCOUNT_NO = "2201"
-
-def _parse_vat_rate(val) -> float | None:
-    if val is None:
-        return None
-    s = str(val).strip()
-    if not s:
-        return None
-    up = s.upper()
-    if up in VAT_CODE_TO_RATE:
-        return VAT_CODE_TO_RATE[up]
-    try:
-        x = float(s.replace("%", "").replace(",", "."))
-        return (x / 100.0) if x > 1 else x
-    except Exception:
-        return None
-
-REQUIRED_COLS = [
-    "csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung",
-    "mwst_code", "mwst_konto",
-    "currency", "exchange_rate",
-]
-
-def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
-    if df_in is None:
-        df_in = pd.DataFrame()
-    df = pd.DataFrame(columns=REQUIRED_COLS)
-    for c in REQUIRED_COLS:
-        df[c] = df_in[c] if c in df_in.columns else ""
-
-    try:
-        df["csv_row"] = pd.to_numeric(df["csv_row"], errors="coerce").astype("Int64")
-    except Exception:
-        df["csv_row"] = pd.Series([pd.NA] * len(df), dtype="Int64")
-
-    df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
-    df["exchange_rate"] = pd.to_numeric(df["exchange_rate"], errors="coerce").astype(float)
-    df["currency"] = df["currency"].replace({None: ""}).fillna("").astype(str)
-
-    for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung", "mwst_code", "mwst_konto"]:
-        df[c] = df[c].replace({None: ""}).fillna("")
-        df[c] = df[c].astype(str)
-        df[c] = df[c].replace({"None": "", "nan": "", "<NA>": ""})
-
-    return df
-
-def _parse_date_to_iso(x: str) -> str:
-    s = (str(x) if x is not None else "").strip()
-    if not s:
-        return ""
-    d = pd.to_datetime(s, dayfirst=True, errors="coerce")
-    if pd.isna(d):
-        d = pd.to_datetime(s, dayfirst=False, errors="coerce")
-    return "" if pd.isna(d) else d.date().isoformat()
-
-def _to_float(x) -> float:
-    if x is None:
-        return 0.0
-    s = str(x).strip().replace("’", "").replace("'", "")
-    try:
-        return float(s.replace(" ", "").replace(",", "."))
-    except Exception:
-        try:
-            return float(s)
-        except Exception:
-            return 0.0
-
-def resolve_account_id_from_number_or_id(val):
-    """
-    Accepts:
-      - Kontonummer like "1020", "1020-A", "10 20", "1'020"
-      - raw account_id like "12345"
-    Returns account_id (int) or None.
-    """
-    if val is None:
-        return None
-    raw = str(val).strip()
-    if raw == "":
-        return None
-
-    # Quick path: exact key
-    if raw in st.session_state.acct_map_by_number:
-        try:
-            return int(st.session_state.acct_map_by_number[raw])
-        except Exception:
-            pass
-
-    # Normalize possible kontonummer formats
-    norm = raw.split("-", 1)[0]
-    norm = norm.replace("’", "").replace("'", "").replace(" ", "")
-
-    if norm in st.session_state.acct_map_by_number:
-        try:
-            return int(st.session_state.acct_map_by_number[norm])
-        except Exception:
-            pass
-
-    # If it's an integer, assume it's already an account_id
-    try:
-        return int(norm)
-    except Exception:
-        return None
-
-
-def post_with_backoff(url, headers, payload, max_retries=5, base_sleep=0.8):
-    """POST with exponential backoff on 429/5xx. Returns (ok: bool, response_or_text)."""
-    for attempt in range(max_retries + 1):
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        # Auto refresh once on 401
-        if r.status_code == 401 and attempt == 0:
-            refresh_access_token()
-            r = requests.post(url, headers=headers, json=payload, timeout=30)
-
-        if r.status_code < 400:
-            return True, r
-
-        if r.status_code not in (429, 500, 502, 503, 504) or attempt == max_retries:
-            try:
-                return False, f"HTTP {r.status_code}: {r.text}"
-            except Exception:
-                return False, f"HTTP {r.status_code}"
-
-        sleep_s = base_sleep * (2 ** attempt) + random.uniform(0, 0.25)
-        time.sleep(sleep_s)
-
-    return False, "Max retries exceeded"
-
-def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFrame:
-    """Fill soll/haben based on keyword rules. Does NOT overwrite existing non-empty cells."""
-    if df is None or df.empty or not rules:
-        return df
-    out = df.copy()
-    for col in ["beschreibung", "soll", "haben"]:
-        if col not in out.columns:
-            out[col] = ""
-        out[col] = out[col].astype(str)
-
-    amt = pd.to_numeric(out.get("betrag", 0), errors="coerce").fillna(0)
-
-    for r in rules:
-        kw = str(r.get("keyword", "")).strip()
-        acct = str(r.get("account", "")).strip()
-        side = str(r.get("side", "haben")).strip().lower()
-        if not kw or not acct:
-            continue
-
-        mask_kw = out["beschreibung"].str.contains(kw, case=False, na=False)
-
-        if side == "soll":
-            empty = out["soll"].str.strip() == ""
-            out.loc[mask_kw & empty, "soll"] = acct
-        elif side == "haben":
-            empty = out["haben"].str.strip() == ""
-            out.loc[mask_kw & empty, "haben"] = acct
-        else:
-            empty_s = out["soll"].str.strip() == ""
-            empty_h = out["haben"].str.strip() == ""
-            out.loc[mask_kw & (amt > 0) & empty_s, "soll"] = acct
-            out.loc[mask_kw & (amt < 0) & empty_h, "haben"] = acct
-
-    return out
-
-
-def _make_unique_columns(cols, prefix="col"):
-    out, seen = [], {}
-    for i, c in enumerate(cols, start=1):
-        name = str(c).strip()
-        if name == "" or name.lower().startswith("unnamed:"):
-            name = f"{prefix}_{i}"
-        base = name
-        if base in seen:
-            seen[base] += 1
-            name = f"{base}__{seen[base]}"
-        else:
-            seen[base] = 1
-        out.append(name)
-    return out
-
-def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
-    """
-    Robust reader for CSV or Excel (xlsx disguised as csv).
-    - Ensures unique, non-empty column names
-    - Reserves 'csv_row' name (renames existing to 'csv_row_file')
-    - Tries multiple encodings and delimiters
-    - If header parsing fails, falls back to header=None and synthesizes column names
-    Returns a pandas DataFrame (never None) or raises ValueError.
-    """
-    raw = uploaded_file.getvalue()
-
-    # Detect Excel by magic number
-    if len(raw) >= 4 and raw[:4] == b"PK\x03\x04":
-        try:
-            df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
-        except Exception as e:
-            raise ValueError(f"Excel-Datei konnte nicht gelesen werden: {e}")
-
-        df.columns = _make_unique_columns(df.columns, prefix="col")
-        if "csv_row" in df.columns:
-            df = df.rename(columns={"csv_row": "csv_row_file"})
-        return df
-
-    # CSV path
-    encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
-    delimiters = [None, ";", ",", "\t", "|"]
-    errors = []
-
-    for enc in encodings:
-        for sep in delimiters:
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(raw),
-                    sep=sep, engine="python", encoding=enc, decimal=decimal,
-                    dtype=str, keep_default_na=False, header=0
-                )
-                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-                    df.columns = _make_unique_columns(df.columns, prefix="col")
-                    if "csv_row" in df.columns:
-                        df = df.rename(columns={"csv_row": "csv_row_file"})
-                    return df
-            except Exception as e:
-                errors.append(f"header=0 {enc}/{repr(sep)} → {e}")
-
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(raw),
-                    sep=sep, engine="python", encoding=enc, decimal=decimal,
-                    dtype=str, keep_default_na=False, header=None
-                )
-                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-                    df.columns = _make_unique_columns([f"col_{i+1}" for i in range(df.shape[1])], prefix="col")
-                    if "csv_row" in df.columns:
-                        df = df.rename(columns={"csv_row": "csv_row_file"})
-                    return df
-            except Exception as e:
-                errors.append(f"header=None {enc}/{repr(sep)} → {e}")
-
-    msg = "CSV konnte nicht gelesen werden: " + "; ".join(errors[:6])
-    if len(errors) > 6:
-        msg += " …"
-    raise ValueError(msg)
-
-# =========================
-# SESSION DEFAULTS
-# =========================
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "oauth" not in st.session_state:
-    st.session_state.oauth = {}
-if "acct_map_by_number" not in st.session_state:
-    st.session_state.acct_map_by_number = {}
-if "acct_df" not in st.session_state:
-    st.session_state.acct_df = None
-if "selected_bank_number" not in st.session_state:
-    st.session_state.selected_bank_number = None
-if "bank_csv_df" not in st.session_state:
-    st.session_state.bank_csv_df = None
-if "bank_csv_view_df" not in st.session_state:
-    st.session_state.bank_csv_view_df = None
-if "bank_start_row" not in st.session_state:
-    st.session_state.bank_start_row = 1
-if "bank_map" not in st.session_state:
-    st.session_state.bank_map = {"datum": None, "betrag": None, "beschreibung": None}
-if "bulk_df" not in st.session_state:
-    st.session_state.bulk_df = None
-
-DEFAULT_CURRENCY_CODE = "CHF"
-DEFAULT_CURRENCY_ID = 1
-DEFAULT_CURRENCY_FACTOR = 1.0
-
-# =========================
-# SIDEBAR NAV
-# =========================
-STEP_LABELS = {
-    1: "1) Kontenplan",
-    2: "2) Bankdatei",
-    3: "3) Kontrolle & Import",
-}
-
-def sidebar_nav():
-    st.sidebar.markdown("### Navigation")
-    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
-    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
-
-    chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
-
-    new_step = {v: k for k, v in STEP_LABELS.items()}[chosen]
-    if new_step != st.session_state.step:
-        st.session_state.step = new_step
-        st.rerun()
-
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
-        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
-            if k in st.session_state:
-                del st.session_state[k]
-        st.session_state.step = 1
-        st.rerun()
-
-# =========================
-# AUTH HELPERS
-# =========================
-def make_login_url():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
-    params = {
-        "client_id": BEXIO_CLIENT_ID,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "response_type": "code",
-        "scope": SCOPES,
-        "state": state,
-    }
-    return f"{AUTH_URL}?{urlencode(params)}"
-
-
-
-def auth_header(token):
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
-def save_tokens(tokens):
-    tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
-    st.session_state.oauth = tokens
-
-def need_login():
-    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
-
-def refresh_access_token():
-    if not st.session_state.oauth.get("refresh_token"):
-        return
-    data = {
-        "grant_type": "refresh_token",
-        "refresh_token": st.session_state.oauth["refresh_token"],
-        "client_id": BEXIO_CLIENT_ID,
-        "client_secret": BEXIO_CLIENT_SECRET,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-    }
-    r = requests.post(TOKEN_URL, data=data, timeout=30)
-    r.raise_for_status()
-    save_tokens(r.json())
-
-def login_link():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
-    params = {
-        "client_id": BEXIO_CLIENT_ID,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "response_type": "code",
-        "scope": SCOPES,
-        "state": state,
-    }
-    url = f"{AUTH_URL}?{urlencode(params)}"
-    st.markdown(f"[Sign in with bexio]({url})")
-
-def handle_callback():
-    qp = st.query_params
-    code = qp.get("code")
-    if not code:
-        return
-
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "client_id": BEXIO_CLIENT_ID,
-        "client_secret": BEXIO_CLIENT_SECRET,
-    }
-
-    try:
-        r = requests.post(TOKEN_URL, data=data, timeout=30)
-    except requests.RequestException as e:
-        st.error(f"Token request failed to send: {e}")
-        st.query_params.clear()
-        st.stop()
-
-    if r.status_code >= 400:
-        try:
-            body = r.json()
-        except Exception:
-            body = r.text
-
-        st.error(
-            f"Token exchange failed ({r.status_code}).\n\n"
-            f"Response:\n{body}"
-        )
-
-        with st.expander("Troubleshooting tips", expanded=True):
-            st.markdown(
-                "- **Redirect URI mismatch**: `BEXIO_REDIRECT_URI` must match **exactly** what’s configured in Bexio (scheme, host, path).\n"
-                "- **Code already used or expired**: Try clicking *Sign in with bexio* again.\n"
-                "- **Client credentials**: Ensure `BEXIO_CLIENT_ID` / `BEXIO_CLIENT_SECRET` are correct for this app.\n"
-                "- **Wrong realm / token URL**: Double-check `TOKEN_URL`.\n"
-                "- **Scope issues**: The requested `SCOPES` must be allowed for your app."
-            )
-
-        st.query_params.clear()
-        st.stop()
-
-    try:
-        save_tokens(r.json())
-    except Exception as e:
-        st.error(f"Could not parse token response: {e}")
-        st.query_params.clear()
-        st.stop()
-
-    st.query_params.clear()
-
-def _auth():
-    return {**auth_header(st.session_state.oauth["access_token"]), "Accept": "application/json"}
-
-def _auth_v2():
-    return {
-        **auth_header(st.session_state.oauth["access_token"]),
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
-
-# =========================
-# API HELPERS
-# =========================
-def fetch_all_accounts_v2(limit=2000):
-    url = f"{API_V2}/accounts/search"
-    offset = 0
-    rows = []
-    payload = [{"field": "name", "value": "", "criteria": "not_null"}]
-    while True:
-        params = {"limit": limit, "offset": offset}
-        r = requests.post(url, headers=_auth_v2(), json=payload, params=params, timeout=30)
-        r.raise_for_status()
-        chunk = r.json() if isinstance(r.json(), list) else []
-        if not chunk:
-            break
-        rows.extend(chunk)
-        if len(chunk) < limit:
-            break
-        offset += limit
-    return rows
-
-# =========================
-# LAYOUT: HEADER + NAV
-# =========================
+    # Render as HTML (not Markdown) => will never show raw tags
+    components.html(html, height=760, scrolling=False)
+
+    # Also hide Streamlit sidebar/etc on the login run
+    st.markdown(
+        """
+        <style>
+          section[data-testid="stSidebar"] { display: none !important; }
+          div[data-testid="collapsedControl"] { display: none !important; }
+          header { display: none !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# -------------------------
+# MAIN FLOW
+# -------------------------
 handle_callback()
-
 
 if need_login():
     render_login_page()
     st.stop()
 
-# only after login:
+# after login:
 ui_shell()
 _inject_local_css()
 render_solid_header()
-sidebar_nav()
 
+# optional: refresh if expired mid-run
 if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
 
-render_solid_header()
+# ... continue with your sidebar_nav() + step logic ...
+
 sidebar_nav()
 
 # =========================
