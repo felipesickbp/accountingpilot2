@@ -342,7 +342,8 @@ def render_login_page():
   </div>
 </div>
 """
-    st.markdown(html.strip(), unsafe_allow_html=True)
+safe_html = "\n".join(line.lstrip() for line in html.splitlines())
+st.markdown(safe_html, unsafe_allow_html=True)
 
 
 def _inject_local_css(file_path: Path = CSS_PATH):
