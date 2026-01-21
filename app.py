@@ -1628,9 +1628,43 @@ elif st.session_state.step == 3:
                             "currency_factor": float(currency_factor),
                         }
 
+                        def _norm_acct_no(x: str) -> str:
+                            s = (x or "").strip().replace("’", "").replace("'", "").replace(" ", "")
+                            return s.split("-", 1)[0]
+                        
+                        def _is_bank_like(acct_no: str) -> bool:
+                            n = _norm_acct_no(acct_no)
+                            return bool(re.fullmatch(r"10\d{2}", n)) or n in {"1000"}  # extend if needed
+                        
+                        def _is_pl_like(acct_no: str) -> bool:
+                            n = _norm_acct_no(acct_no)
+                            return len(n) >= 1 and n[0] in {"3", "4", "5", "6", "7", "8"}  # Swiss CoA heuristic
+                        
                         if tax_id:
                             base_entry["tax_id"] = int(tax_id)
-                            base_entry["tax_account_id"] = int(debit_id)
+                        
+                            # 1) explicit override from your grid
+                            mwst_konto_raw = _s(row.get("mwst_konto")).strip()
+                            tax_base_id = resolve_account_id_from_number_or_id(mwst_konto_raw) if mwst_konto_raw else None
+                        
+                            # 2) otherwise: pick the “net/base” account (usually NOT the bank)
+                            if not tax_base_id:
+                                soll_raw  = _s(row.get("soll")).strip()   # debit side input (e.g. 1020)
+                                haben_raw = _s(row.get("haben")).strip()  # credit side input (e.g. 3400)
+                        
+                                if _is_bank_like(soll_raw) and not _is_bank_like(haben_raw):
+                                    tax_base_id = int(credit_id)   # sales: bank debit, revenue credit
+                                elif _is_bank_like(haben_raw) and not _is_bank_like(soll_raw):
+                                    tax_base_id = int(debit_id)    # purchase: expense debit, bank credit
+                                elif _is_pl_like(haben_raw) and not _is_pl_like(soll_raw):
+                                    tax_base_id = int(credit_id)
+                                elif _is_pl_like(soll_raw) and not _is_pl_like(haben_raw):
+                                    tax_base_id = int(debit_id)
+                                else:
+                                    tax_base_id = int(credit_id)   # safe-ish default for VAT-on-sales cases
+                        
+                            base_entry["tax_account_id"] = int(tax_base_id)
+
 
                         def _post_with_entry(entry_obj):
                             payload_local = {
