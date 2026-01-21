@@ -483,14 +483,61 @@ def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
     return df
 
 
-def _parse_date_to_iso(x: str) -> str:
-    s = (str(x) if x is not None else "").strip()
+def _parse_date_to_iso(x: str, *, default_year: int | None = None, strict: bool = False) -> str:
+    """
+    Accepts:
+      - ISO: YYYY-MM-DD
+      - Swiss: DD.MM.YYYY / DD.MM.YY (optionally trailing dot)
+      - Swiss without year: DD.MM (only if strict=False; uses default_year/current year)
+
+    If strict=True:
+      - rejects DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, etc. to avoid day/month swaps
+      - rejects DD.MM without year
+    """
+    s = ("" if x is None else str(x)).strip()
     if not s:
         return ""
-    d = pd.to_datetime(s, dayfirst=True, errors="coerce")
-    if pd.isna(d):
-        d = pd.to_datetime(s, dayfirst=False, errors="coerce")
-    return "" if pd.isna(d) else d.date().isoformat()
+
+    # normalize whitespace
+    s = re.sub(r"\s+", " ", s)
+
+    # 1) ISO: YYYY-MM-DD
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        y, mo, d = map(int, m.groups())
+        return dt_date(y, mo, d).isoformat()  # raises ValueError if invalid
+
+    # 2) Swiss: DD.MM.YYYY / DD.MM.YY (allow trailing dot)
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{2,4})\.?", s)
+    if m:
+        d, mo, y = m.groups()
+        d = int(d); mo = int(mo); y = int(y)
+        if y < 100:
+            # pick a deterministic century
+            y += 2000 if y <= 69 else 1900
+        return dt_date(y, mo, d).isoformat()
+
+    # 3) Swiss without year: DD.MM (optional trailing dot)
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.?", s)
+    if m:
+        if strict:
+            return ""  # force user to provide year in strict mode
+        d, mo = map(int, m.groups())
+        y = int(default_year or dt_date.today().year)
+        return dt_date(y, mo, d).isoformat()
+
+    # 4) Anything else: in strict mode, reject to avoid swaps
+    if strict:
+        return ""
+
+    # 5) Non-strict fallback (optional): try pandas/dayfirst for odd inputs
+    # (kept minimal, but still safer than trying month-first)
+    try:
+        d = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        return "" if pd.isna(d) else d.date().isoformat()
+    except Exception:
+        return ""
+
 
 def _to_float(x) -> float:
     if x is None:
@@ -1503,9 +1550,19 @@ elif st.session_state.step == 3:
 
                         # date
                         date_val = row.get("datum")
-                        date_iso = date_val.isoformat() if isinstance(date_val, dt_date) else _parse_date_to_iso(_s(date_val))
+                        raw_date = _s(row.get("datum"))
+
+                        date_val = row.get("datum")
+                        if isinstance(date_val, dt_date):
+                            date_iso = date_val.isoformat()
+                        else:
+                            date_iso = _parse_date_to_iso(raw_date, strict=True)
+                        
                         if not date_iso:
-                            raise ValueError(f"Ungültiges Datum in Editor-Zeile {idx+1}")
+                            raise ValueError(
+                                f"Ungültiges oder mehrdeutiges Datum in Editor-Zeile {idx+1}: '{raw_date}'. "
+                                f"Bitte nutze YYYY-MM-DD oder DD.MM.YYYY."
+                            )
 
                         # amount (absolute)
                         amount = abs(_f(row.get("betrag")))
