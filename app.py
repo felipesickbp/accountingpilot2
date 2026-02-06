@@ -750,11 +750,74 @@ def sidebar_nav():
         st.session_state.step = new_step
         st.rerun()
 
+    # =========================
+    # IMPORT HISTORY (per tenant)
+    # =========================
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📥 Vergangene Imports")
+
+    tenant_id = (st.session_state.get("company_id") or "").strip() or "unknown"
+    tenant_name = (st.session_state.get("company_name") or "").strip()
+
+    try:
+        past = list_imports(engine, tenant_id=tenant_id, limit=30)
+    except Exception as e:
+        st.sidebar.error(f"DB-Fehler beim Laden: {e}")
+        past = []
+
+    if not past:
+        st.sidebar.caption("Noch keine Imports gespeichert.")
+    else:
+        with st.sidebar.expander("Letzte Imports anzeigen", expanded=True):
+            for r in past:
+                imp_id = str(r["id"])
+                created = r.get("created_at")
+                row_count = r.get("row_count", 0)
+                tname = (r.get("tenant_name") or tenant_name or "").strip()
+
+                # pretty timestamp (works for datetime or string)
+                try:
+                    created_str = created.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    created_str = str(created).replace("T", " ")[:16]
+
+                st.markdown(f"**{created_str}**  \n{tname} · {row_count} Zeilen")
+
+                c1, c2 = st.columns([1, 1])
+
+                with c1:
+                    if st.button("Details", key=f"imp_details_{imp_id}"):
+                        st.session_state["selected_import_id"] = imp_id
+
+                with c2:
+                    try:
+                        csv_bytes = get_import_csv(engine, import_id=imp_id)
+                    except Exception:
+                        csv_bytes = None
+
+                    if csv_bytes:
+                        st.download_button(
+                            "CSV",
+                            data=csv_bytes,
+                            file_name=f"import_{tenant_id}_{imp_id}.csv",
+                            mime="text/csv",
+                            key=f"imp_dl_{imp_id}",
+                        )
+                    else:
+                        st.caption("CSV fehlt")
+
+                st.markdown("---")
+
+    # =========================
+    # RESET
+    # =========================
     st.sidebar.markdown("---")
     if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
-        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid",
-                  "company_profile","company_name","company_id"]:
+        for k in [
+            "acct_map_by_number", "acct_df", "selected_bank_number", "bank_csv_df",
+            "bank_csv_view_df", "bulk_df", "bank_map", "bank_start_row", "bulk_grid",
+            "company_profile", "company_name", "company_id", "selected_import_id"
+        ]:
             if k in st.session_state:
                 del st.session_state[k]
         st.session_state.step = 1
