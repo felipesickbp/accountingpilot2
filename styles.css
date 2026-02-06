@@ -30,10 +30,10 @@
   --text: #0F1D2B;
   --muted: rgba(15, 29, 43, 0.74);
 
-  /* Accents (purple → blue) */
-  --accent-a: #8B5CF6;
-  --accent-b: #2563EB;
-  --accent-b-hover: #1D4ED8;
+  /* Accents (navy) */
+  --accent-a: #0B1F3A;          /* navy */
+  --accent-b: #0B1F3A;          /* navy (same = no gradient look) */
+  --accent-b-hover: #08162A;    /* darker navy on hover */
 
   /* Buttons */
   --primary: var(--accent-b);
