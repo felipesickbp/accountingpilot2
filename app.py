@@ -942,27 +942,40 @@ def fetch_company_profile():
 
 
 def ensure_company_profile_loaded(force: bool = False):
-    """
-    Loads company profile once per session (or force reload).
-    """
     if (not force) and st.session_state.get("company_profile"):
         return
 
     prof = fetch_company_profile()
     st.session_state.company_profile = prof or {}
 
-    # best-effort extraction of name/id across variants
     name = ""
     cid = ""
 
     if isinstance(prof, dict):
-        for k in ("name", "company_name", "company", "profile_name"):
-            if prof.get(k):
-                name = str(prof.get(k)).strip()
+        # 1) common keys
+        for k in ("name", "company_name", "company", "profile_name", "display_name"):
+            v = prof.get(k)
+            if v:
+                name = str(v).strip()
                 break
+
+        # 2) some APIs store company name in parts
+        if not name:
+            n1 = (prof.get("name_1") or "").strip()
+            n2 = (prof.get("name_2") or "").strip()
+            name = (n1 + (" " + n2 if n2 else "")).strip()
+
+        # 3) nested structures (just in case)
+        if not name and isinstance(prof.get("company"), dict):
+            v = prof["company"].get("name") or prof["company"].get("company_name")
+            if v:
+                name = str(v).strip()
+
+        # id variants
         for k in ("id", "company_id", "uuid"):
-            if prof.get(k):
-                cid = str(prof.get(k)).strip()
+            v = prof.get(k)
+            if v:
+                cid = str(v).strip()
                 break
 
     st.session_state.company_name = name
