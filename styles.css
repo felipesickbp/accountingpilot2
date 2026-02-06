@@ -84,11 +84,13 @@ header[data-testid="stHeader"]{
   background: rgba(255,255,255,0.0) !important;
 }
 
-/* Keep your own ui_shell spacing intact */
+/* Wider app for spreadsheet-heavy screens */
 .block-container{
-  max-width: 1200px !important;
-  padding-bottom: 3rem !important;
+  max-width: 1600px !important;     /* or 1800px if you like */
+  padding-left: 2.0rem !important;
+  padding-right: 2.0rem !important;
 }
+
 
 /* Typography */
 h1, h2, h3, h4{
