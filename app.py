@@ -1149,7 +1149,42 @@ sidebar_nav()
 # =========================
 # STEP 1 — KONTENPLAN
 # =========================
-st.caption(f"🏢 Mandant: {st.session_state.get('company_name') or '—'}")
+# --- Top header row: right-aligned, prominent tenant badge ---
+company_name = (st.session_state.get("company_name") or "—").strip()
+
+c_left, c_right = st.columns([6, 4])
+with c_left:
+    st.write("")  # keep left side empty (or put a page title here later)
+
+with c_right:
+    st.markdown(
+        f"""
+        <div style="
+            display:flex;
+            justify-content:flex-end;
+            align-items:center;
+            margin-top:-6px;
+        ">
+          <div style="
+              padding:10px 14px;
+              border-radius:14px;
+              border:1px solid rgba(15,29,43,0.14);
+              background: rgba(255,255,255,0.86);
+              box-shadow: 0 10px 26px rgba(15,29,43,0.08);
+              font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+          ">
+            <div style="font-size:12px; font-weight:800; color: rgba(15,29,43,0.60); letter-spacing:.02em;">
+              🏢 MANDANT
+            </div>
+            <div style="font-size:18px; font-weight:900; color:#0F1D2B; line-height:1.15;">
+              {company_name}
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 if st.session_state.step == 1:
     st.subheader("1) Kontenplan aus bexio importieren")
