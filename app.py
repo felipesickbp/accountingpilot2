@@ -751,27 +751,13 @@ def sidebar_nav():
         st.rerun()
 
     # =========================
-    # IMPORT HISTORY (per tenant)
+    # IMPORT HISTORY (per tenant) — clickable rows (no buttons)
     # =========================
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📥 Vergangene Imports")
 
     tenant_id = (st.session_state.get("company_id") or "").strip() or "unknown"
     tenant_name = (st.session_state.get("company_name") or "").strip()
-
-    def _as_bytes(x):
-        """Streamlit download_button needs bytes/str/file-like; Postgres bytea often returns memoryview."""
-        if x is None:
-            return None
-        if isinstance(x, (bytes, bytearray)):
-            return bytes(x)
-        if isinstance(x, memoryview):
-            return x.tobytes()
-        # last resort
-        try:
-            return bytes(x)
-        except Exception:
-            return None
 
     try:
         past = list_imports(engine, tenant_id=tenant_id, limit=30)
@@ -782,6 +768,37 @@ def sidebar_nav():
     if not past:
         st.sidebar.caption("Noch keine Imports gespeichert.")
     else:
+        # ensure state exists
+        if "selected_import_id" not in st.session_state:
+            st.session_state.selected_import_id = None
+
+        # little CSS to make it look like clickable cards
+        st.sidebar.markdown(
+            """
+            <style>
+              .imp-item{
+                border: 1px solid rgba(49,51,63,0.12);
+                border-radius: 12px;
+                padding: 10px 12px;
+                margin: 8px 0;
+                background: rgba(255,255,255,0.03);
+                cursor: pointer;
+              }
+              .imp-item:hover{
+                border-color: rgba(31,92,255,0.45);
+                background: rgba(31,92,255,0.06);
+              }
+              .imp-item.selected{
+                border-color: rgba(31,92,255,0.9);
+                background: rgba(31,92,255,0.10);
+              }
+              .imp-date{ font-size: 12px; font-weight: 700; opacity: 0.9; margin: 0; }
+              .imp-meta{ font-size: 12px; opacity: 0.75; margin: 2px 0 0 0; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         with st.sidebar.expander("Letzte Imports anzeigen", expanded=True):
             for r in past:
                 imp_id = str(r["id"])
@@ -789,39 +806,21 @@ def sidebar_nav():
                 row_count = int(r.get("row_count", 0) or 0)
                 tname = (r.get("tenant_name") or tenant_name or "").strip()
 
-                # pretty timestamp (works for datetime or string)
+                # pretty timestamp
                 try:
                     created_str = created.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     created_str = str(created).replace("T", " ")[:16]
 
-                st.markdown(f"**{created_str}**  \n{tname} · {row_count} Zeilen")
+                is_selected = (st.session_state.selected_import_id == imp_id)
+                cls = "imp-item selected" if is_selected else "imp-item"
 
-                c1, c2 = st.columns([1, 1])
-
-                with c1:
-                    if st.button("Details", key=f"imp_details_{imp_id}"):
-                        st.session_state["selected_import_id"] = imp_id
-
-                with c2:
-                    csv_data = None
-                    try:
-                        csv_data = _as_bytes(get_import_csv(engine, import_id=imp_id))
-                    except Exception:
-                        csv_data = None
-
-                    if csv_data:
-                        st.download_button(
-                            "CSV",
-                            data=csv_data,
-                            file_name=f"import_{tenant_id}_{imp_id}.csv",
-                            mime="text/csv",
-                            key=f"imp_dl_{imp_id}",
-                        )
-                    else:
-                        st.caption("CSV fehlt")
-
-                st.markdown("---")
+                # Use st.button for click handling, but style it like a card.
+                # Streamlit buttons are the most reliable way to trigger state changes.
+                label = f"{created_str}\n{tname} · {row_count} Zeilen"
+                if st.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
+                    st.session_state.selected_import_id = imp_id
+                    st.rerun()
 
     # =========================
     # RESET
