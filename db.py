@@ -1,174 +1,98 @@
 # db.py
-import os
-from datetime import datetime, date
-from typing import Optional, Iterable
-
-import pandas as pd
+import os, uuid, json
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
 
-def get_engine() -> Engine:
-    url = os.getenv("DATABASE_URL", "").strip()
+def get_engine():
+    # choose ONE source:
+    # 1) Streamlit secrets:
+    try:
+        import streamlit as st
+        url = st.secrets.get("DATABASE_URL") or st.secrets.get("connections", {}).get("sql", {}).get("url")
+    except Exception:
+        url = None
+
+    # 2) env var fallback
+    url = url or os.getenv("DATABASE_URL")
     if not url:
-        raise RuntimeError("DATABASE_URL missing. Set it in Streamlit Secrets.")
-    # Allow both postgres urls and sqlalchemy urls
-    if url.startswith("postgresql://"):
-        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+        raise RuntimeError("Missing DATABASE_URL in secrets or env")
+
     return create_engine(url, pool_pre_ping=True)
 
-DDL = """
--- paste the SQL schema from above here, exactly
-"""
-
-def init_db(engine: Engine) -> None:
-    with engine.begin() as conn:
-        conn.execute(text(DDL))
-
-def get_or_create_tenant(engine: Engine, company_id: str, company_name: str) -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            text("select id from tenants where company_id=:cid"),
-            {"cid": company_id},
-        ).fetchone()
-        if row:
-            # optionally keep name updated
-            conn.execute(
-                text("update tenants set company_name=:n where id=:id"),
-                {"n": company_name, "id": row[0]},
-            )
-            return int(row[0])
-
-        res = conn.execute(
-            text("insert into tenants(company_id, company_name) values (:cid,:n) returning id"),
-            {"cid": company_id, "n": company_name},
-        ).fetchone()
-        return int(res[0])
-
-def get_or_create_user(engine: Engine, tenant_id: int, user_sub: str) -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            text("select id from users where tenant_id=:t and user_sub=:s"),
-            {"t": tenant_id, "s": user_sub},
-        ).fetchone()
-        if row:
-            return int(row[0])
-        res = conn.execute(
-            text("insert into users(tenant_id, user_sub) values (:t,:s) returning id"),
-            {"t": tenant_id, "s": user_sub},
-        ).fetchone()
-        return int(res[0])
-
-def create_import(engine: Engine, tenant_id: int, user_id: Optional[int], source: str, filename: Optional[str]) -> int:
-    with engine.begin() as conn:
-        res = conn.execute(
-            text("""
-                insert into imports(tenant_id, user_id, source, filename, status)
-                values (:t,:u,:s,:f,'draft')
-                returning id
-            """),
-            {"t": tenant_id, "u": user_id, "s": source, "f": filename},
-        ).fetchone()
-        return int(res[0])
-
-def upsert_import_rows(engine: Engine, import_id: int, df: pd.DataFrame) -> None:
+def init_db(engine):
+    ddl = """
+    create table if not exists imports (
+      id uuid primary key,
+      created_at timestamptz not null default now(),
+      tenant_id text not null,
+      tenant_name text,
+      row_count int not null default 0,
+      payload_json jsonb not null,
+      results_json jsonb,
+      csv_bytes bytea
+    );
+    create index if not exists idx_imports_tenant_created
+      on imports (tenant_id, created_at desc);
     """
-    df should contain columns:
-    csv_row, datum, beschreibung, betrag, currency, exchange_rate, soll, haben, mwst_code, mwst_konto
-    """
-    if df is None or df.empty:
-        return
+    with engine.begin() as conn:
+        for stmt in ddl.split(";"):
+            s = stmt.strip()
+            if s:
+                conn.execute(text(s))
 
-    rows = []
-    for _, r in df.iterrows():
-        row_no = int(r.get("csv_row") or 0) or 0
-        if row_no <= 0:
-            continue
+def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=None, csv_bytes: bytes | None = None):
+    import pandas as pd
 
-        # parse date (YYYY-MM-DD already in your flow)
-        d = r.get("datum") or None
-        if isinstance(d, str) and d.strip():
-            try:
-                d = date.fromisoformat(d.strip())
-            except Exception:
-                d = None
+    if isinstance(df_rows, pd.DataFrame):
+        payload = df_rows.to_dict(orient="records")
+        row_count = int(len(df_rows))
+    else:
+        payload = df_rows
+        row_count = int(len(payload or []))
 
-        rows.append({
-            "import_id": import_id,
-            "row_no": row_no,
-            "date": d,
-            "description": (r.get("beschreibung") or "")[:4000],
-            "amount": float(r.get("betrag") or 0),
-            "currency": (r.get("currency") or "").upper(),
-            "exchange_rate": float(r.get("exchange_rate") or 1.0),
-            "soll": str(r.get("soll") or ""),
-            "haben": str(r.get("haben") or ""),
-            "mwst_code": str(r.get("mwst_code") or ""),
-            "mwst_konto": str(r.get("mwst_konto") or ""),
-        })
-
-    if not rows:
-        return
+    imp_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
 
     with engine.begin() as conn:
         conn.execute(
             text("""
-                insert into import_rows
-                (import_id, row_no, date, description, amount, currency, exchange_rate, soll, haben, mwst_code, mwst_konto, post_status)
-                values
-                (:import_id, :row_no, :date, :description, :amount, :currency, :exchange_rate, :soll, :haben, :mwst_code, :mwst_konto, 'pending')
-                on conflict (import_id, row_no) do update set
-                    date=excluded.date,
-                    description=excluded.description,
-                    amount=excluded.amount,
-                    currency=excluded.currency,
-                    exchange_rate=excluded.exchange_rate,
-                    soll=excluded.soll,
-                    haben=excluded.haben,
-                    mwst_code=excluded.mwst_code,
-                    mwst_konto=excluded.mwst_konto
+                insert into imports (id, created_at, tenant_id, tenant_name, row_count, payload_json, results_json, csv_bytes)
+                values (:id, :created_at, :tenant_id, :tenant_name, :row_count, :payload_json::jsonb, :results_json::jsonb, :csv_bytes)
             """),
-            rows,
+            {
+                "id": str(imp_id),
+                "created_at": now.isoformat(),
+                "tenant_id": tenant_id,
+                "tenant_name": tenant_name,
+                "row_count": row_count,
+                "payload_json": json.dumps(payload),
+                "results_json": json.dumps(results) if results is not None else None,
+                "csv_bytes": csv_bytes,
+            }
         )
+    return str(imp_id)
 
-def mark_row_result(engine: Engine, import_id: int, row_no: int, status: str, bexio_id: Optional[str]=None, error: Optional[str]=None) -> None:
+def list_imports(engine, tenant_id: str, limit: int = 50):
     with engine.begin() as conn:
-        conn.execute(
+        rows = conn.execute(
             text("""
-                update import_rows
-                set post_status=:st,
-                    bexio_manual_entry_id=:bid,
-                    error_message=:err,
-                    posted_at=case when :st='ok' then now() else posted_at end
-                where import_id=:iid and row_no=:rno
+                select id, created_at, tenant_name, row_count
+                from imports
+                where tenant_id = :tenant_id
+                order by created_at desc
+                limit :limit
             """),
-            {"st": status, "bid": bexio_id, "err": error, "iid": import_id, "rno": row_no},
-        )
+            {"tenant_id": tenant_id, "limit": limit}
+        ).mappings().all()
+    return rows
 
-def set_import_status(engine: Engine, import_id: int) -> None:
-    """
-    Derive status from row statuses.
-    """
+def get_import_csv(engine, import_id: str) -> bytes | None:
     with engine.begin() as conn:
-        agg = conn.execute(text("""
-            select
-              sum(case when post_status='ok' then 1 else 0 end) as ok,
-              sum(case when post_status='error' then 1 else 0 end) as err,
-              sum(case when post_status='pending' then 1 else 0 end) as pend
-            from import_rows
-            where import_id=:iid
-        """), {"iid": import_id}).fetchone()
+        row = conn.execute(
+            text("select csv_bytes from imports where id = :id"),
+            {"id": import_id}
+        ).mappings().first()
+    if not row:
+        return None
+    return row["csv_bytes"]
 
-        ok, err, pend = (agg[0] or 0), (agg[1] or 0), (agg[2] or 0)
-
-        if pend == 0 and err == 0 and ok > 0:
-            status = "posted"
-        elif ok > 0 and (err > 0 or pend > 0):
-            status = "partial"
-        elif err > 0 and ok == 0:
-            status = "failed"
-        else:
-            status = "draft"
-
-        conn.execute(text("""
-            update imports set status=:s, updated_at=now() where id=:iid
-        """), {"s": status, "iid": import_id})
