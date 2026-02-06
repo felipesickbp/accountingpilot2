@@ -712,6 +712,11 @@ if "company_name" not in st.session_state:
     st.session_state.company_name = ""
 if "company_id" not in st.session_state:
     st.session_state.company_id = ""
+if "batch_size" not in st.session_state:
+    st.session_state.batch_size = 25
+if "sleep_between_batches" not in st.session_state:
+    st.session_state.sleep_between_batches = 15.0
+
 
 
 DEFAULT_CURRENCY_CODE = "CHF"
@@ -1554,10 +1559,28 @@ elif st.session_state.step == 3:
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
     # ---------- batching controls ----------
-    colC, colD = st.columns(2)
-    batch_size = int(colC.number_input("Batch-Grösse", min_value=1, max_value=200, value=50, step=1))
-    sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
+    with st.expander("Erweitert: Stabilität & Performance", expanded=False):
+        colC, colD = st.columns(2)
+    
+        batch_size = int(colC.number_input(
+            "Batch-Grösse",
+            min_value=1,
+            max_value=200,
+            value=int(st.session_state.batch_size),
+            step=1,
+            key="batch_size",
+        ))
+    
+        sleep_between_batches = float(colD.number_input(
+            "Pause zwischen Batches (Sek.)",
+            min_value=0.0,
+            max_value=120.0,
+            value=float(st.session_state.sleep_between_batches),
+            step=1.0,
+            key="sleep_between_batches",
+        ))
     # ---------------------------------------
+
 
     # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
     VAT_CODE_TO_LEDGER = {
