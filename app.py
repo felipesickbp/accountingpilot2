@@ -1059,9 +1059,10 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
         refresh_access_token()
 
 ensure_company_profile_loaded()
-render_app_header(title="BURKHART & PARTNERS", show_client_pill=False)
 
+render_app_header(show_client_pill=True)  # or False
 sidebar_nav()
+
 
 # =========================
 # STEP 1 — KONTENPLAN
