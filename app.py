@@ -1,3 +1,5 @@
+#app.py
+
 import os, time, base64, io
 import pandas as pd
 import streamlit as st
@@ -799,12 +801,10 @@ def save_tokens(tokens):
     tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
     st.session_state.oauth = tokens
 
-    # store selected bexio company (Mandant) from token claims (no user/email)
+    # store selected bexio company (Mandant) (no user/email)
     try:
-        from helpers import set_company_from_tokens
-        set_company_from_tokens(tokens)
+        set_company_from_tokens(tokens)   # <-- use the top-level import
     except Exception:
-        # silently ignore if helpers not available / token has no company info
         pass
 
 
