@@ -413,19 +413,9 @@ a.cta:hover{
   /* intentionally left untouched */
 }
 
-
 /* =========================
    Solid header (top bar)
    ========================= */
-
-:root{
-  --bp-ink: #0F1D2B;
-  --bp-ink-2: rgba(15, 29, 43, 0.72);
-  --bp-border: rgba(15, 29, 43, 0.10);
-  --bp-bg: rgba(255,255,255,0.86);
-  --bp-pill: rgba(245,247,255,0.85);
-  --bp-shadow: 0 10px 30px rgba(15, 29, 43, 0.08);
-}
 
 /* sticky top bar */
 .solid-header{
@@ -433,13 +423,13 @@ a.cta:hover{
   top: 0;
   z-index: 9999;
 
-  background: var(--bp-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 
-  border: 1px solid var(--bp-border);
-  border-radius: 14px;
-  box-shadow: var(--bp-shadow);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-mini);
 
   padding: 10px 14px;
   margin: 0 0 14px 0;
@@ -461,7 +451,7 @@ a.cta:hover{
 }
 
 .solid-logo{
-  height: var(--logo-px, 36px);
+  height: var(--logo-px, 34px);
   width: auto;
   display: block;
   transform: translateY(0.5px);
@@ -474,7 +464,7 @@ a.cta:hover{
   letter-spacing: -0.02em;
   margin: 0;
   line-height: 1.15;
-  color: var(--bp-ink);
+  color: var(--text);
 
   white-space: nowrap;
   overflow: hidden;
@@ -496,21 +486,23 @@ a.cta:hover{
   gap: 8px;
 
   font-size: 12px;
-  font-weight: 800;
-  color: var(--bp-ink-2);
+  font-weight: 900;
+  color: rgba(15, 29, 43, 0.78);
 
-  border: 1px solid rgba(15,29,43,0.12);
-  background: var(--bp-pill);
+  border: 1px solid rgba(15,29,43,0.10);
+  background:
+    linear-gradient(90deg, rgba(139,92,246,0.12), rgba(37,99,235,0.10)),
+    rgba(255,255,255,0.80);
   padding: 8px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
 }
 
 .client-pill b{
-  color: var(--bp-ink);
+  color: var(--text);
 }
 
-/* optional: smaller on narrow viewports */
+/* responsive */
 @media (max-width: 900px){
   .solid-title{ max-width: 46vw; font-size: 16px; }
   .client-pill{ padding: 7px 9px; }
