@@ -836,7 +836,9 @@ STEP_LABELS = {
     1: "1) Kontenplan",
     2: "2) Bankdatei",
     3: "3) Kontrolle & Import",
+    4: "4) History",
 }
+
 
 def sidebar_nav():
     st.sidebar.markdown("### Navigation")
