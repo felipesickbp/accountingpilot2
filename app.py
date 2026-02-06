@@ -13,9 +13,14 @@ import textwrap
 load_dotenv(override=True)
 
 # =========================
+# APP DEFAULTS / CONSTANTS
+# =========================
+DEFAULT_CURRENCY_CODE = os.getenv("DEFAULT_CURRENCY_CODE", "CHF")
+DEFAULT_CURRENCY_ID = int(os.getenv("DEFAULT_CURRENCY_ID", "1"))
+
+# =========================
 # ENV + OAUTH HELPERS
 # =========================
-
 def _getenv(name: str, required=True, default=None):
     v = os.getenv(name, default)
     if required and (v is None or str(v).strip() == ""):
@@ -39,6 +44,50 @@ SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
 
+# =========================
+# SESSION DEFAULTS (avoid KeyErrors)
+# =========================
+def _init_session_defaults():
+    ss = st.session_state
+
+    if "oauth" not in ss:
+        ss.oauth = {}
+
+    if "step" not in ss:
+        ss.step = 1
+
+    if "acct_df" not in ss:
+        ss.acct_df = None
+    if "acct_map_by_number" not in ss:
+        ss.acct_map_by_number = {}
+
+    if "selected_bank_number" not in ss:
+        ss.selected_bank_number = ""
+
+    if "bank_csv_df" not in ss:
+        ss.bank_csv_df = None
+    if "bank_csv_view_df" not in ss:
+        ss.bank_csv_view_df = None
+    if "bank_start_row" not in ss:
+        ss.bank_start_row = 1
+    if "bank_map" not in ss:
+        ss.bank_map = {"datum": "<keine>", "betrag": "<keine>", "beschreibung": "<keine>"}
+
+    if "bulk_df" not in ss:
+        ss.bulk_df = None
+
+    if "company_profile" not in ss:
+        ss.company_profile = {}
+    if "company_name" not in ss:
+        ss.company_name = ""
+    if "company_id" not in ss:
+        ss.company_id = ""
+
+_init_session_defaults()
+
+# =========================
+# UI SHELL
+# =========================
 def ui_shell():
     st.markdown(
         """
@@ -119,6 +168,116 @@ def _inject_local_css(file_path: str = "styles.css"):
 _inject_local_css()
 
 # =========================
+# MISSING HELPERS USED LATER (minimal stubs to make this file runnable)
+# Replace with your full versions if you have them elsewhere.
+# =========================
+def ensure_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure required columns exist and types are reasonable."""
+    required = [
+        "csv_row", "buchungsnummer", "datum", "beschreibung",
+        "betrag", "currency", "exchange_rate",
+        "soll", "haben", "mwst_code", "mwst_konto"
+    ]
+    out = df.copy()
+    for c in required:
+        if c not in out.columns:
+            out[c] = ""
+    # normalize
+    out["betrag"] = pd.to_numeric(out["betrag"], errors="coerce").fillna(0.0)
+    out["exchange_rate"] = pd.to_numeric(out["exchange_rate"], errors="coerce").fillna(1.0)
+    for c in ["buchungsnummer", "datum", "beschreibung", "currency", "soll", "haben", "mwst_code", "mwst_konto"]:
+        out[c] = out[c].astype(str).replace({"None": "", "nan": "", "NaN": ""})
+    return out
+
+def _to_float(x):
+    try:
+        if x is None:
+            return 0.0
+        s = str(x).strip().replace("’", "").replace("'", "").replace(" ", "")
+        s = s.replace(",", ".")
+        return float(s) if s else 0.0
+    except Exception:
+        return 0.0
+
+def _parse_date_to_iso(x, strict: bool = False) -> str:
+    """
+    Minimal date parser:
+    Accepts YYYY-MM-DD or DD.MM.YYYY. Returns YYYY-MM-DD or "".
+    """
+    s = ("" if x is None else str(x)).strip()
+    if not s:
+        return ""
+    # YYYY-MM-DD
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    # DD.MM.YYYY
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", s)
+    if m:
+        d, mo, y = m.group(1), m.group(2), m.group(3)
+        return f"{y}-{int(mo):02d}-{int(d):02d}"
+    # fallback: if strict -> empty (so you catch ambiguity)
+    return "" if strict else ""
+
+def read_csv_or_excel(uploaded_file, encoding_choice="utf-8", decimal_choice=".") -> pd.DataFrame:
+    """
+    Robust reader for CSV/XLSX.
+    - CSV: respects encoding + decimal separator
+    - Excel: reads first sheet
+    """
+    name = (uploaded_file.name or "").lower()
+    if name.endswith(".csv"):
+        return pd.read_csv(
+            uploaded_file,
+            encoding=encoding_choice,
+            dtype=str,
+            keep_default_na=False,
+            decimal=decimal_choice,
+        )
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        return pd.read_excel(uploaded_file, dtype=str).fillna("")
+    raise ValueError("Unsupported file type")
+
+def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFrame:
+    """
+    Minimal rule application:
+    - if keyword in description: write account into soll/haben depending on rule['side'] or 'auto' does nothing here.
+    """
+    out = df.copy()
+    for r in rules or []:
+        kw = (r.get("keyword") or "").strip()
+        acct = (r.get("account") or "").strip()
+        side = (r.get("side") or "").strip().lower()
+        if not kw or not acct:
+            continue
+        mask = out["beschreibung"].astype(str).str.contains(re.escape(kw), case=False, na=False)
+        if side == "soll":
+            out.loc[mask & (out["soll"].astype(str).str.strip() == ""), "soll"] = acct
+        elif side == "haben":
+            out.loc[mask & (out["haben"].astype(str).str.strip() == ""), "haben"] = acct
+        else:
+            # auto: leave for your real sign-based logic later
+            pass
+    return out
+
+def sidebar_nav():
+    """
+    Minimal navigation that defines st.session_state.step.
+    Replace with your full sidebar.
+    """
+    with st.sidebar:
+        st.markdown("### Navigation")
+        step = st.radio("Schritt", [1, 2, 3], index=int(st.session_state.step) - 1)
+        st.session_state.step = int(step)
+        st.markdown("---")
+        if st.button("🔄 Reset Session State"):
+            for k in ["acct_df", "acct_map_by_number", "selected_bank_number", "bank_csv_df", "bank_csv_view_df",
+                      "bank_start_row", "bank_map", "bulk_df", "tax_code_to_id"]:
+                if k in st.session_state:
+                    st.session_state.pop(k, None)
+            _init_session_defaults()
+            st.rerun()
+
+# =========================
 # AUTH HELPERS
 # =========================
 def make_login_url():
@@ -140,8 +299,6 @@ def render_login_page():
     if LOGO_PATH.exists():
         logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
 
-    # IMPORTANT:
-    # We override global styles.css (even if it uses !important) by using very specific selectors + !important here.
     st.markdown(
         """
         <style>
@@ -211,10 +368,7 @@ def render_login_page():
             justify-content: center;
             margin-bottom: 14px;
           }
-          .lp-hero span {
-            font-size: 26px;
-            line-height: 1;
-          }
+          .lp-hero span { font-size: 26px; line-height: 1; }
 
           .lp-title {
             font-size: 30px;
@@ -348,14 +502,18 @@ def save_tokens(tokens):
     st.session_state.oauth = tokens
 
 def need_login():
-    return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
+    oauth = st.session_state.get("oauth") or {}
+    if not oauth:
+        return True
+    return time.time() > float(oauth.get("expires_at", 0))
 
 def refresh_access_token():
-    if not st.session_state.oauth.get("refresh_token"):
+    oauth = st.session_state.get("oauth") or {}
+    if not oauth.get("refresh_token"):
         return
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": st.session_state.oauth["refresh_token"],
+        "refresh_token": oauth["refresh_token"],
         "client_id": BEXIO_CLIENT_ID,
         "client_secret": BEXIO_CLIENT_SECRET,
         "redirect_uri": BEXIO_REDIRECT_URI,
@@ -363,18 +521,6 @@ def refresh_access_token():
     r = requests.post(TOKEN_URL, data=data, timeout=30)
     r.raise_for_status()
     save_tokens(r.json())
-
-def login_link():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
-    params = {
-        "client_id": BEXIO_CLIENT_ID,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "response_type": "code",
-        "scope": SCOPES,
-        "state": state,
-    }
-    url = f"{AUTH_URL}?{urlencode(params)}"
-    st.markdown(f"[Sign in with bexio]({url})")
 
 def handle_callback():
     qp = st.query_params
@@ -460,13 +606,11 @@ def fetch_all_accounts_v2(limit=2000):
         offset += limit
     return rows
 
-
 def fetch_company_profile():
     """
     Returns dict with company profile information from bexio.
     Tries v2 first (most reliable), then v3 fallback.
     """
-    # v2 (commonly available)
     try:
         r = requests.get(f"{API_V2}/company_profile", headers=_auth_v2(), timeout=20)
         if r.status_code == 401:
@@ -477,7 +621,6 @@ def fetch_company_profile():
     except Exception:
         pass
 
-    # v3 fallback (some tenants expose it)
     try:
         r = requests.get(f"{API_V3}/company_profile", headers=_auth(), timeout=20)
         if r.status_code == 401:
@@ -490,18 +633,13 @@ def fetch_company_profile():
 
     return None
 
-
 def ensure_company_profile_loaded(force: bool = False):
-    """
-    Loads company profile once per session (or force reload).
-    """
     if (not force) and st.session_state.get("company_profile"):
         return
 
     prof = fetch_company_profile()
     st.session_state.company_profile = prof or {}
 
-    # best-effort extraction of name/id across variants
     name = ""
     cid = ""
 
@@ -517,7 +655,6 @@ def ensure_company_profile_loaded(force: bool = False):
 
     st.session_state.company_name = name
     st.session_state.company_id = cid
-
 
 # =========================
 # LAYOUT: HEADER + NAV
@@ -621,7 +758,6 @@ elif st.session_state.step == 2:
         type=["csv", "xlsx", "xls"]
     )
 
-    # NEW: Skip file upload and go straight to an empty grid
     if st.button("Ohne Datei starten (leere Tabelle)", key="start_empty_table"):
         df_new = pd.DataFrame({
             "csv_row":        [1],
@@ -642,7 +778,6 @@ elif st.session_state.step == 2:
         st.session_state.step = 3
         st.rerun()
 
-    # --- Encoding & Decimal controls (used by the reader) ---
     col_enc1, col_enc2 = st.columns([2, 1])
     encoding_choice = col_enc1.selectbox(
         "Encoding",
@@ -651,7 +786,6 @@ elif st.session_state.step == 2:
     )
     decimal_choice = col_enc2.selectbox("Dezimaltrennzeichen", [".", ","], index=0)
 
-    # --- robust read + preview ---
     if bank_file is not None:
         try:
             st.session_state.bank_csv_df = read_csv_or_excel(bank_file, encoding_choice, decimal_choice)
@@ -726,8 +860,8 @@ elif st.session_state.step == 2:
             if st.session_state.selected_bank_number:
                 pos_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) > 0
                 neg_mask = pd.to_numeric(df_new["betrag"], errors="coerce").fillna(0) < 0
-                df_new.loc[pos_mask & (df_new["soll"].str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
-                df_new.loc[neg_mask & (df_new["haben"].str.strip() == ""), "haben"] = st.session_state.selected_bank_number
+                df_new.loc[pos_mask & (df_new["soll"].astype(str).str.strip() == ""),  "soll"]  = st.session_state.selected_bank_number
+                df_new.loc[neg_mask & (df_new["haben"].astype(str).str.strip() == ""), "haben"] = st.session_state.selected_bank_number
 
             df_new["betrag"] = pd.to_numeric(df_new["betrag"], errors="coerce").abs()
 
@@ -750,7 +884,6 @@ elif st.session_state.step == 3:
 
     st.subheader("3) Kontrolle & Import")
 
-    # --- Keyword → Konto rules (persist in session) ---
     if "keyword_rules" not in st.session_state:
         st.session_state.keyword_rules = [
             {"keyword": "Polizei",       "account": "2100", "side": "haben"},
@@ -798,7 +931,6 @@ elif st.session_state.step == 3:
                 st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
                 st.rerun()
 
-    # --- Editable grid (inkl. MWST) ---
     EDIT_COLS = [
         "buchungsnummer", "datum", "beschreibung",
         "betrag", "currency", "exchange_rate",
@@ -814,7 +946,6 @@ elif st.session_state.step == 3:
             key="paste_tsv"
         )
 
-    # ✅ FIXED: indentation + multicurrency detection that won't confuse account numbers with currency/rate
     if st.button("➡️ Eingefügte Zeilen ins Grid laden", key="load_paste_btn"):
         txt = (paste_text or "").strip()
         if not txt:
@@ -837,8 +968,6 @@ elif st.session_state.step == 3:
                 st.stop()
 
             n = df_p.shape[1]
-
-            # defaults: date, desc, amount, soll, haben, (optional) mwst_code, mwst_konto
             currency_col = None
             rate_col = None
             soll_col = 3
@@ -851,7 +980,6 @@ elif st.session_state.step == 3:
                 if len(s) == 3 and s.isalpha():
                     return True
                 if s.isdigit():
-                    # currency_id typically small; prevent false positives on account numbers like 1020/2000
                     try:
                         v = int(s)
                         return 1 <= v <= 999
@@ -871,7 +999,6 @@ elif st.session_state.step == 3:
                 s = s.split("-", 1)[0]
                 return s.isdigit() and 1 <= int(s) <= 999999
 
-            # Detect multicurrency safely (7-col multicurrency OR 9-col multicurrency+VAT)
             is_multicurrency = False
             if n >= 7:
                 df_probe = df_p.replace("", pd.NA).dropna(how="all")
@@ -945,10 +1072,8 @@ elif st.session_state.step == 3:
         auto_ref   = colA.checkbox("Referenznummer automatisch beziehen (wenn leer)", value=True)
         submitted  = colB.form_submit_button("Buchungen posten 🤖", type="primary")
 
-    # merge edited values back
     st.session_state.bulk_df.loc[:, EDIT_COLS] = edited_view
 
-    # Sanitize editor artifacts
     st.session_state.bulk_df[EDIT_COLS] = (
         st.session_state.bulk_df[EDIT_COLS]
           .replace({None: "", "None": "", "nan": "", "NaN": "", "<NA>": ""})
@@ -956,20 +1081,16 @@ elif st.session_state.step == 3:
     )
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
-    # ---------- batching controls ----------
     colC, colD = st.columns(2)
     batch_size = int(colC.number_input("Batch-Grösse", min_value=1, max_value=200, value=50, step=1))
     sleep_between_batches = float(colD.number_input("Pause zwischen Batches (Sek.)", min_value=0.0, value=0.0, step=0.1))
-    # ---------------------------------------
 
-    # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
     VAT_CODE_TO_LEDGER = {
         "VM81": "1170",
         "UN81": "2200",
         "VB81": "1171",
     }
 
-    # ---- tax-code → tax_id mapper (v3 then v2; scans names/labels; semantic fallback) ----
     def _ensure_tax_code_map():
         if st.session_state.get("tax_code_to_id"):
             return
@@ -1018,7 +1139,6 @@ elif st.session_state.step == 3:
 
         mp = {}
 
-        # Try v3
         try:
             r = requests.get(f"{API_V3}/accounting/taxes", headers=_auth(), timeout=30)
             if r.status_code == 401:
@@ -1030,7 +1150,6 @@ elif st.session_state.step == 3:
         except Exception:
             pass
 
-        # Fallback to v2
         if not mp:
             try:
                 r2 = requests.get(f"{API_V2}/taxes", headers=_auth_v2(), timeout=30)
@@ -1044,6 +1163,7 @@ elif st.session_state.step == 3:
                 pass
 
         st.session_state.tax_code_to_id = mp
+
 
     def _tax_id_from_code(code_str: str) -> int | None:
         code = (code_str or "").upper().strip()
