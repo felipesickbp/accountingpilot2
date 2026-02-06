@@ -140,11 +140,16 @@ section[data-testid="stSidebar"] [role="radiogroup"]{
   box-shadow: none !important;
 }
 
-/* Each option becomes a clean menu row */
+/* --- Sidebar Navigation: equal-width menu rows --- */
+
+/* Each option becomes a clean nav row (FULL WIDTH) */
 section[data-testid="stSidebar"] [role="radiogroup"] label{
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
+
+  width: 100% !important;            /* ✅ same width */
+  box-sizing: border-box !important;  /* ✅ padding included */
 
   border-radius: 12px !important;
   padding: 10px 12px !important;
@@ -156,23 +161,39 @@ section[data-testid="stSidebar"] [role="radiogroup"] label{
   transition: background .12s ease, border-color .12s ease, transform .06s ease;
 }
 
-/* Hide only the radio dot / indicator (BaseWeb) but keep text visible */
+/* Hide only the radio indicator column (keep text) */
 section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child{
-  display: none !important;   /* this is the indicator column in Streamlit/BaseWeb */
-}
-
-/* Also hide any SVG inside the label (sometimes used for the dot) */
-section[data-testid="stSidebar"] [role="radiogroup"] label svg{
   display: none !important;
 }
 
-/* Ensure the label text is styled */
+/* Make the text wrapper expand so the row uses full width */
+section[data-testid="stSidebar"] [role="radiogroup"] label > div:last-child{
+  flex: 1 1 auto !important;  /* ✅ take remaining width */
+  min-width: 0 !important;
+}
+
+/* Align text consistently and avoid weird internal margins */
 section[data-testid="stSidebar"] [role="radiogroup"] label p,
 section[data-testid="stSidebar"] [role="radiogroup"] label span{
   margin: 0 !important;
+  width: 100% !important;     /* ✅ text spans full row */
   font-weight: 800 !important;
   color: rgba(15,29,43,0.86) !important;
 }
+
+/* Hover */
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
+  background: rgba(37,99,235,0.06) !important;
+  border-color: rgba(37,99,235,0.18) !important;
+}
+
+/* Selected = active menu item */
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checked="true"]){
+  background: linear-gradient(90deg, rgba(139,92,246,0.14), rgba(37,99,235,0.10)) !important;
+  border-color: rgba(37,99,235,0.32) !important;
+  box-shadow: 0 10px 22px rgba(37,99,235,0.10) !important;
+}
+
 
 /* Hover */
 section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
