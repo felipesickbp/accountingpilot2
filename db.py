@@ -90,8 +90,16 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
     with engine.begin() as conn:
         conn.execute(
             text("""
-                insert into imports (id, created_at, tenant_id, tenant_name, row_count, payload_json, results_json, csv_bytes)
-                values (:id, :created_at, :tenant_id, :tenant_name, :row_count, :payload_json::jsonb, :results_json::jsonb, :csv_bytes)
+                insert into imports (
+                    id, created_at, tenant_id, tenant_name, row_count,
+                    payload_json, results_json, csv_bytes
+                )
+                values (
+                    :id, :created_at, :tenant_id, :tenant_name, :row_count,
+                    CAST(:payload_json AS jsonb),
+                    CAST(:results_json AS jsonb),
+                    :csv_bytes
+                )
             """),
             {
                 "id": str(imp_id),
@@ -105,6 +113,7 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
             }
         )
     return str(imp_id)
+
 
 def list_imports(engine, tenant_id: str, limit: int = 50):
     with engine.begin() as conn:
