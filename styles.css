@@ -330,6 +330,15 @@ button[kind="primary"]:disabled{
   transform: none !important;
 }
 
+/* FIX: button text contrast (global p/span rules override Streamlit buttons) */
+button[kind="primary"] *,
+div[data-testid="stFormSubmitButton"] > button *,
+[data-testid^="baseButton-primary"] > button *{
+  color: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
+
 
 /* Secondary / outline */
 [data-testid^="baseButton-secondary"] > button,
