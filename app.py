@@ -759,6 +759,20 @@ def sidebar_nav():
     tenant_id = (st.session_state.get("company_id") or "").strip() or "unknown"
     tenant_name = (st.session_state.get("company_name") or "").strip()
 
+    def _as_bytes(x):
+        """Streamlit download_button needs bytes/str/file-like; Postgres bytea often returns memoryview."""
+        if x is None:
+            return None
+        if isinstance(x, (bytes, bytearray)):
+            return bytes(x)
+        if isinstance(x, memoryview):
+            return x.tobytes()
+        # last resort
+        try:
+            return bytes(x)
+        except Exception:
+            return None
+
     try:
         past = list_imports(engine, tenant_id=tenant_id, limit=30)
     except Exception as e:
@@ -772,7 +786,7 @@ def sidebar_nav():
             for r in past:
                 imp_id = str(r["id"])
                 created = r.get("created_at")
-                row_count = r.get("row_count", 0)
+                row_count = int(r.get("row_count", 0) or 0)
                 tname = (r.get("tenant_name") or tenant_name or "").strip()
 
                 # pretty timestamp (works for datetime or string)
@@ -790,15 +804,16 @@ def sidebar_nav():
                         st.session_state["selected_import_id"] = imp_id
 
                 with c2:
+                    csv_data = None
                     try:
-                        csv_bytes = get_import_csv(engine, import_id=imp_id)
+                        csv_data = _as_bytes(get_import_csv(engine, import_id=imp_id))
                     except Exception:
-                        csv_bytes = None
+                        csv_data = None
 
-                    if csv_bytes:
+                    if csv_data:
                         st.download_button(
                             "CSV",
-                            data=csv_bytes,
+                            data=csv_data,
                             file_name=f"import_{tenant_id}_{imp_id}.csv",
                             mime="text/csv",
                             key=f"imp_dl_{imp_id}",
@@ -822,6 +837,7 @@ def sidebar_nav():
                 del st.session_state[k]
         st.session_state.step = 1
         st.rerun()
+
 
 
 # =========================
