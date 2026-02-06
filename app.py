@@ -954,8 +954,16 @@ STEP_LABELS = {
 
 def sidebar_nav():
     st.sidebar.markdown("### Navigation")
-    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
-    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
+
+    # ✅ include ALL steps from STEP_LABELS (so Step 4 appears)
+    step_names = [STEP_LABELS[k] for k in sorted(STEP_LABELS.keys())]
+
+    current_name = STEP_LABELS.get(st.session_state.step, step_names[0])
+
+    # if current step is invalid, reset to first
+    if current_name not in step_names:
+        st.session_state.step = sorted(STEP_LABELS.keys())[0]
+        current_name = STEP_LABELS[st.session_state.step]
 
     chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
 
@@ -966,8 +974,11 @@ def sidebar_nav():
 
     st.sidebar.markdown("---")
     if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
-        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
+        for k in [
+            "acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
+            "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid",
+            "tax_code_to_id","currency_code_to_id"
+        ]:
             if k in st.session_state:
                 del st.session_state[k]
         st.session_state.step = 1
@@ -1973,3 +1984,65 @@ elif st.session_state.step == 3:
             else:
                 st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
+                # =========================
+                # HISTORY: persist this run
+                # =========================
+                try:
+                    results_df = pd.DataFrame(results)
+
+                    # what user tried to post (snapshot of the grid)
+                    rows_export = st.session_state.bulk_df[EDIT_COLS].copy()
+
+                    # choose a simple "source"
+                    source_type = "paste" if (st.session_state.get("paste_tsv") or "").strip() else "grid"
+                    source_name = "paste" if source_type == "paste" else "grid"
+
+                    save_import_run(
+                        rows_df=rows_export,
+                        results_df=results_df,
+                        source_type=source_type,
+                        source_name=source_name,
+                        meta={
+                            "batch_size": batch_size,
+                            "sleep_between_batches": sleep_between_batches,
+                        },
+                    )
+                except Exception as e:
+                    st.warning(f"History konnte nicht gespeichert werden: {e}")
+
+
+# =========================
+# STEP 4 — HISTORY
+# =========================
+elif st.session_state.step == 4:
+    st.subheader("4) History")
+
+    company_id = str(st.session_state.get("company_id") or "")
+    df_runs = list_import_runs(company_id=company_id, limit=300)
+
+    if df_runs.empty:
+        st.info("Noch keine Imports gespeichert.")
+        st.stop()
+
+    # show table
+    show_df = df_runs.drop(columns=["meta_json"], errors="ignore").copy()
+    st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+    # select run id
+    run_ids = show_df["id"].tolist()
+    selected_id = st.selectbox("Run auswählen", options=run_ids, index=0)
+
+    blob = get_run_excel_blob(int(selected_id))
+    if blob:
+        st.download_button(
+            "⬇️ Excel herunterladen",
+            data=blob,
+            file_name=f"import_history_run_{selected_id}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    else:
+        st.warning("Keine Excel-Datei für diesen Run gefunden.")
+
+
