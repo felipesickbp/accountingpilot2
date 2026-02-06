@@ -799,6 +799,15 @@ def save_tokens(tokens):
     tokens["expires_at"] = time.time() + int(tokens.get("expires_in", 3600)) - 30
     st.session_state.oauth = tokens
 
+    # store selected bexio company (Mandant) from token claims (no user/email)
+    try:
+        from helpers import set_company_from_tokens
+        set_company_from_tokens(tokens)
+    except Exception:
+        # silently ignore if helpers not available / token has no company info
+        pass
+
+
 def need_login():
     return (not st.session_state.oauth) or (time.time() > st.session_state.oauth.get("expires_at", 0))
 
