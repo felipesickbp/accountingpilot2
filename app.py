@@ -1574,215 +1574,263 @@ elif st.session_state.step == 3:
             st.write("manual_entries raw-json error:", str(e))
 
     if submitted:
-        rows = st.session_state.bulk_df.copy()
+    rows = st.session_state.bulk_df.copy()
 
-        st.write("DEBUG: bulk_df rows:", len(st.session_state.bulk_df))
-        st.write("DEBUG: rows copied for import:", len(rows))
-        st.dataframe(rows[EDIT_COLS].head(30), use_container_width=True, hide_index=True)
+    st.write("DEBUG: bulk_df rows:", len(st.session_state.bulk_df))
+    st.write("DEBUG: rows copied for import:", len(rows))
+    st.dataframe(rows[EDIT_COLS].head(30), use_container_width=True, hide_index=True)
 
-        if rows.empty:
-            st.warning("Keine Zeilen im Gitter.")
-        else:
-            results = []
-            idxs = list(rows.index)
+    if rows.empty:
+        st.warning("Keine Zeilen im Gitter.")
+    else:
+        results = []
+        idxs = list(rows.index)
 
-            def _s(x):
+        def _s(x):
+            try:
+                if x is None or pd.isna(x):
+                    return ""
+            except Exception:
+                pass
+            return str(x)
+
+        def _f(x):
+            try:
+                return float(x)
+            except Exception:
+                return 0.0
+
+        for start in range(0, len(idxs), batch_size):
+            chunk_idxs = idxs[start:start + batch_size]
+
+            for idx in chunk_idxs:
+                row = rows.loc[idx]
                 try:
-                    if x is None or pd.isna(x):
-                        return ""
-                except Exception:
-                    pass
-                return str(x)
+                    # Skip empty editor rows
+                    if (_s(row.get("datum")) == "" and
+                        _f(row.get("betrag")) == 0 and
+                        _s(row.get("soll")) == "" and
+                        _s(row.get("haben")) == ""):
+                        continue
 
-            def _f(x):
-                try:
-                    return float(x)
-                except Exception:
-                    return 0.0
+                    # date
+                    raw_date = _s(row.get("datum"))
+                    date_val = row.get("datum")
+                    if isinstance(date_val, dt_date):
+                        date_iso = date_val.isoformat()
+                    else:
+                        date_iso = _parse_date_to_iso(raw_date, strict=True)
 
-            for start in range(0, len(idxs), batch_size):
-                chunk_idxs = idxs[start:start + batch_size]
+                    if not date_iso:
+                        raise ValueError(
+                            f"Ungültiges oder mehrdeutiges Datum in Editor-Zeile {idx+1}: '{raw_date}'. "
+                            f"Bitte nutze YYYY-MM-DD oder DD.MM.YYYY."
+                        )
 
-                for idx in chunk_idxs:
-                    row = rows.loc[idx]
-                    try:
-                        # Skip empty editor rows
-                        if (_s(row.get("datum")) == "" and
-                            _f(row.get("betrag")) == 0 and
-                            _s(row.get("soll")) == "" and
-                            _s(row.get("haben")) == ""):
-                            continue
+                    # amount (absolute)
+                    amount = abs(_f(row.get("betrag")))
+                    if amount == 0:
+                        raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
 
-                        # date
-                        date_val = row.get("datum")
-                        raw_date = _s(row.get("datum"))
+                    # accounts
+                    debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
+                    credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
+                    if not debit_id or not credit_id:
+                        raise ValueError(
+                            f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren."
+                        )
 
-                        date_val = row.get("datum")
-                        if isinstance(date_val, dt_date):
-                            date_iso = date_val.isoformat()
-                        else:
-                            date_iso = _parse_date_to_iso(raw_date, strict=True)
-                        
-                        if not date_iso:
+                    # reference number
+                    ref_nr = _s(row.get("buchungsnummer"))
+                    if auto_ref and not ref_nr:
+                        rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
+                        rr.raise_for_status()
+                        ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
+
+                    desc     = _s(row.get("beschreibung"))
+                    code_raw = _s(row.get("mwst_code")).upper().strip()
+
+                    tax_id = None
+                    if code_raw:
+                        tax_id = _tax_id_from_code(code_raw)
+                        if not tax_id:
                             raise ValueError(
-                                f"Ungültiges oder mehrdeutiges Datum in Editor-Zeile {idx+1}: '{raw_date}'. "
-                                f"Bitte nutze YYYY-MM-DD oder DD.MM.YYYY."
+                                f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
+                                f"Bitte prüfe im bexio-Mandanten, ob der Satz aktiv ist und "
+                                f"‘{code_raw}’ im Namen/Kürzel enthält oder setze BEXIO_TAX_ID_{code_raw} in der .env."
                             )
 
-                        # amount (absolute)
-                        amount = abs(_f(row.get("betrag")))
-                        if amount == 0:
-                            raise ValueError(f"Betrag darf nicht 0 sein (Editor-Zeile {idx+1}).")
+                    # currency
+                    currency_raw = _s(row.get("currency")).upper().strip()
+                    rate_raw = row.get("exchange_rate")
+                    rate = _f(rate_raw)
 
-                        # accounts
-                        debit_id  = resolve_account_id_from_number_or_id(row.get("soll"))
-                        credit_id = resolve_account_id_from_number_or_id(row.get("haben"))
-                        if not debit_id or not credit_id:
-                            raise ValueError(f"Konto unbekannt (Editor-Zeile {idx+1}): Kontonummern prüfen / Kontenplan importieren.")
+                    if not currency_raw:
+                        currency_raw = DEFAULT_CURRENCY_CODE
 
-                        # reference number
-                        ref_nr = _s(row.get("buchungsnummer"))
-                        if auto_ref and not ref_nr:
-                            rr = requests.get(NEXT_REF_V3, headers=_auth(), timeout=15)
-                            rr.raise_for_status()
-                            ref_nr = (rr.json() or {}).get("next_ref_nr") or ""
+                    currency_id = _currency_id_from_input(currency_raw)
+                    if not currency_id:
+                        raise ValueError(
+                            f"Unbekannte Währung '{currency_raw}' (Editor-Zeile {idx+1}). "
+                            f"Nutze ISO (CHF/EUR/USD) oder trage currency_id ein. "
+                            f"Optional: setze BEXIO_CURRENCY_ID_{currency_raw} in .env."
+                        )
 
-                        desc      = _s(row.get("beschreibung"))
-                        code_raw  = _s(row.get("mwst_code")).upper().strip()
-
-                        tax_id = None
-                        if code_raw:
-                            tax_id = _tax_id_from_code(code_raw)
-                            if not tax_id:
-                                raise ValueError(
-                                    f"MWST-Code '{code_raw}' konnte nicht auf tax_id gemappt werden. "
-                                    f"Bitte prüfe im bexio-Mandanten, ob der Satz aktiv ist und "
-                                    f"‘{code_raw}’ im Namen/Kürzel enthält oder setze BEXIO_TAX_ID_{code_raw} in der .env."
-                                )
-
-                        currency_raw = _s(row.get("currency")).upper().strip()
-                        rate_raw = row.get("exchange_rate")
-                        rate = _f(rate_raw)
-
-                        if not currency_raw:
-                            currency_raw = DEFAULT_CURRENCY_CODE
-
-                        currency_id = _currency_id_from_input(currency_raw)
-                        if not currency_id:
+                    if currency_raw == DEFAULT_CURRENCY_CODE or int(currency_id) == int(DEFAULT_CURRENCY_ID):
+                        currency_factor = 1.0
+                    else:
+                        if rate <= 0:
                             raise ValueError(
-                                f"Unbekannte Währung '{currency_raw}' (Editor-Zeile {idx+1}). "
-                                f"Nutze ISO (CHF/EUR/USD) oder trage currency_id ein. Optional: setze BEXIO_CURRENCY_ID_{currency_raw} in .env."
+                                f"Exchange rate fehlt/ungültig für {currency_raw} (Editor-Zeile {idx+1}). "
+                                f"Bitte positiven Kurs eintragen (z.B. 0.95)."
                             )
+                        currency_factor = float(rate)
 
-                        if currency_raw == DEFAULT_CURRENCY_CODE or int(currency_id) == int(DEFAULT_CURRENCY_ID):
-                            currency_factor = 1.0
-                        else:
-                            if rate <= 0:
-                                raise ValueError(
-                                    f"Exchange rate fehlt/ungültig für {currency_raw} (Editor-Zeile {idx+1}). "
-                                    f"Bitte positiven Kurs eintragen (z.B. 0.95)."
-                                )
-                            currency_factor = float(rate)
+                    base_entry = {
+                        "debit_account_id": int(debit_id),
+                        "credit_account_id": int(credit_id),
+                        "amount": float(amount),
+                        "description": desc,
+                        "currency_id": int(currency_id),
+                        "currency_factor": float(currency_factor),
+                    }
 
-                        base_entry = {
-                            "debit_account_id": int(debit_id),
-                            "credit_account_id": int(credit_id),
-                            "amount": float(amount),
-                            "description": desc,
-                            "currency_id": int(currency_id),
-                            "currency_factor": float(currency_factor),
+                    def _norm_acct_no(x: str) -> str:
+                        s = (x or "").strip().replace("’", "").replace("'", "").replace(" ", "")
+                        return s.split("-", 1)[0]
+
+                    def _is_bank_like(acct_no: str) -> bool:
+                        n = _norm_acct_no(acct_no)
+                        return bool(re.fullmatch(r"10\d{2}", n)) or n in {"1000"}  # extend if needed
+
+                    def _is_pl_like(acct_no: str) -> bool:
+                        n = _norm_acct_no(acct_no)
+                        return len(n) >= 1 and n[0] in {"3", "4", "5", "6", "7", "8"}  # Swiss CoA heuristic
+
+                    if tax_id:
+                        base_entry["tax_id"] = int(tax_id)
+
+                        # 1) explicit override from your grid
+                        mwst_konto_raw = _s(row.get("mwst_konto")).strip()
+                        tax_base_id = resolve_account_id_from_number_or_id(mwst_konto_raw) if mwst_konto_raw else None
+
+                        # 2) otherwise: pick the “net/base” account (usually NOT the bank)
+                        if not tax_base_id:
+                            soll_raw  = _s(row.get("soll")).strip()
+                            haben_raw = _s(row.get("haben")).strip()
+
+                            if _is_bank_like(soll_raw) and not _is_bank_like(haben_raw):
+                                tax_base_id = int(credit_id)   # sales: bank debit, revenue credit
+                            elif _is_bank_like(haben_raw) and not _is_bank_like(soll_raw):
+                                tax_base_id = int(debit_id)    # purchase: expense debit, bank credit
+                            elif _is_pl_like(haben_raw) and not _is_pl_like(soll_raw):
+                                tax_base_id = int(credit_id)
+                            elif _is_pl_like(soll_raw) and not _is_pl_like(haben_raw):
+                                tax_base_id = int(debit_id)
+                            else:
+                                tax_base_id = int(credit_id)   # safe-ish default
+
+                        base_entry["tax_account_id"] = int(tax_base_id)
+
+                    def _post_with_entry(entry_obj):
+                        payload_local = {
+                            "type": "manual_single_entry",
+                            "date": date_iso,
+                            "entries": [entry_obj],
                         }
+                        if ref_nr:
+                            payload_local["reference_nr"] = ref_nr
+                        return post_with_backoff(
+                            MANUAL_ENTRIES_V3,
+                            headers={**_auth(), "Content-Type": "application/json"},
+                            payload=payload_local,
+                        )
 
-                        def _norm_acct_no(x: str) -> str:
-                            s = (x or "").strip().replace("’", "").replace("'", "").replace(" ", "")
-                            return s.split("-", 1)[0]
-                        
-                        def _is_bank_like(acct_no: str) -> bool:
-                            n = _norm_acct_no(acct_no)
-                            return bool(re.fullmatch(r"10\d{2}", n)) or n in {"1000"}  # extend if needed
-                        
-                        def _is_pl_like(acct_no: str) -> bool:
-                            n = _norm_acct_no(acct_no)
-                            return len(n) >= 1 and n[0] in {"3", "4", "5", "6", "7", "8"}  # Swiss CoA heuristic
-                        
-                        if tax_id:
-                            base_entry["tax_id"] = int(tax_id)
-                        
-                            # 1) explicit override from your grid
-                            mwst_konto_raw = _s(row.get("mwst_konto")).strip()
-                            tax_base_id = resolve_account_id_from_number_or_id(mwst_konto_raw) if mwst_konto_raw else None
-                        
-                            # 2) otherwise: pick the “net/base” account (usually NOT the bank)
-                            if not tax_base_id:
-                                soll_raw  = _s(row.get("soll")).strip()   # debit side input (e.g. 1020)
-                                haben_raw = _s(row.get("haben")).strip()  # credit side input (e.g. 3400)
-                        
-                                if _is_bank_like(soll_raw) and not _is_bank_like(haben_raw):
-                                    tax_base_id = int(credit_id)   # sales: bank debit, revenue credit
-                                elif _is_bank_like(haben_raw) and not _is_bank_like(soll_raw):
-                                    tax_base_id = int(debit_id)    # purchase: expense debit, bank credit
-                                elif _is_pl_like(haben_raw) and not _is_pl_like(soll_raw):
-                                    tax_base_id = int(credit_id)
-                                elif _is_pl_like(soll_raw) and not _is_pl_like(haben_raw):
-                                    tax_base_id = int(debit_id)
-                                else:
-                                    tax_base_id = int(credit_id)   # safe-ish default for VAT-on-sales cases
-                        
-                            base_entry["tax_account_id"] = int(tax_base_id)
+                    ok, resp = _post_with_entry(base_entry)
 
-
-                        def _post_with_entry(entry_obj):
-                            payload_local = {
-                                "type": "manual_single_entry",
-                                "date": date_iso,
-                                "entries": [entry_obj],
-                            }
-                            if ref_nr:
-                                payload_local["reference_nr"] = ref_nr
-                            return post_with_backoff(
-                                MANUAL_ENTRIES_V3,
-                                headers={**_auth(), "Content-Type": "application/json"},
-                                payload=payload_local,
-                            )
-
-                        ok, resp = _post_with_entry(base_entry)
-
-                        if ok:
-                            try:
-                                rid = resp.json().get("id")
-                            except Exception:
-                                rid = None
-                            results.append({
-                                "row": idx + 1, "csv_row": row.get("csv_row", ""),
-                                "status": "OK", "id": rid, "reference_nr": ref_nr
-                            })
-                        else:
-                            results.append({
-                                "row": idx + 1, "csv_row": row.get("csv_row", ""),
-                                "status": "ERROR", "error": resp
-                            })
-
-                    except requests.HTTPError as e:
+                    if ok:
                         try:
-                            err_txt = e.response.text
+                            rid = resp.json().get("id")
                         except Exception:
-                            err_txt = str(e)
+                            rid = None
                         results.append({
-                            "row": idx + 1, "csv_row": row.get("csv_row", ""),
-                            "status": f"HTTP {e.response.status_code}", "error": err_txt
+                            "row": idx + 1,
+                            "csv_row": row.get("csv_row", ""),
+                            "status": "OK",
+                            "id": rid,
+                            "reference_nr": ref_nr
                         })
-                    except Exception as e:
+                    else:
                         results.append({
-                            "row": idx + 1, "csv_row": row.get("csv_row", ""),
-                            "status": "ERROR", "error": str(e)
+                            "row": idx + 1,
+                            "csv_row": row.get("csv_row", ""),
+                            "status": "ERROR",
+                            "error": resp
                         })
 
-                if sleep_between_batches and (start + batch_size) < len(idxs):
-                    time.sleep(sleep_between_batches)
+                except requests.HTTPError as e:
+                    try:
+                        err_txt = e.response.text
+                    except Exception:
+                        err_txt = str(e)
+                    results.append({
+                        "row": idx + 1,
+                        "csv_row": row.get("csv_row", ""),
+                        "status": f"HTTP {e.response.status_code}",
+                        "error": err_txt
+                    })
+                except Exception as e:
+                    results.append({
+                        "row": idx + 1,
+                        "csv_row": row.get("csv_row", ""),
+                        "status": "ERROR",
+                        "error": str(e)
+                    })
 
-            if not results:
-                st.info("Keine gültigen Zeilen zum Posten gefunden.")
-            else:
-                st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
-                st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+            if sleep_between_batches and (start + batch_size) < len(idxs):
+                time.sleep(sleep_between_batches)
 
+        if not results:
+            st.info("Keine gültigen Zeilen zum Posten gefunden.")
+        else:
+            ok_count = sum(1 for r in results if r.get("status") == "OK")
+            st.success(f"Fertig. {ok_count} Buchung(en) erfolgreich gepostet.")
+            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
+            # ---- Persist + Download snapshot (MVP) ----
+            # NOTE: requires `engine = get_engine(); init_db(engine)` executed earlier
+            tenant_id = (st.session_state.get("company_id") or "").strip() or "unknown"
+            tenant_name = (st.session_state.get("company_name") or "").strip() or ""
+
+            # snapshot of what was processed (keep it small/consistent)
+            df_snapshot = rows[EDIT_COLS].copy()
+            csv_bytes = df_snapshot.to_csv(index=False).encode("utf-8")
+
+            try:
+                import_id = insert_import(
+                    engine,
+                    tenant_id=tenant_id,
+                    tenant_name=tenant_name,
+                    df_rows=df_snapshot,
+                    results=results,
+                    csv_bytes=csv_bytes,
+                )
+
+                st.success(f"Import gespeichert (ID: {import_id})")
+                st.download_button(
+                    "⬇️ Download dieser Import (CSV)",
+                    data=csv_bytes,
+                    file_name=f"import_{tenant_id}_{import_id}.csv",
+                    mime="text/csv",
+                    key=f"dl_current_{import_id}",
+                )
+            except Exception as e:
+                st.error(f"Speichern in DB fehlgeschlagen: {e}")
+                # still allow download even if DB write fails
+                st.download_button(
+                    "⬇️ Download dieser Import (CSV)",
+                    data=csv_bytes,
+                    file_name=f"import_{tenant_id}_unsaved.csv",
+                    mime="text/csv",
+                    key="dl_current_unsaved",
+                )
