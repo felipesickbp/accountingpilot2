@@ -12,7 +12,10 @@ import re
 from pathlib import Path
 import textwrap
 from helpers import set_company_from_tokens
+from db import get_engine, init_db, insert_import, list_imports, get_import_csv
 
+engine = get_engine()
+init_db(engine)
 
 
 
