@@ -721,7 +721,18 @@ STEP_LABELS = {
 }
 
 def sidebar_nav():
+    # --- Selected bexio company (mandant) ---
+    company = (st.session_state.get("company_name") or "").strip()
+    cid = (st.session_state.get("company_id") or "").strip()
+
+    if company:
+        st.sidebar.caption(f"🏢 Mandant: **{company}**" + (f"  \nID: {cid}" if cid else ""))
+    else:
+        st.sidebar.caption("🏢 Mandant: —")
+
+    st.sidebar.markdown("---")
     st.sidebar.markdown("### Navigation")
+
     step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
     current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
 
@@ -735,11 +746,13 @@ def sidebar_nav():
     st.sidebar.markdown("---")
     if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
         for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
+                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid",
+                  "company_profile","company_name","company_id"]:
             if k in st.session_state:
                 del st.session_state[k]
         st.session_state.step = 1
         st.rerun()
+
 
 # =========================
 # AUTH HELPERS
@@ -970,12 +983,13 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
         refresh_access_token()
 
 ensure_company_profile_loaded()
-
 sidebar_nav()
 
 # =========================
 # STEP 1 — KONTENPLAN
 # =========================
+st.caption(f"🏢 Mandant: {st.session_state.get('company_name') or '—'}")
+
 if st.session_state.step == 1:
     st.subheader("1) Kontenplan aus bexio importieren")
     st.caption("Nur zum Einlesen der Mapping-Tabelle.")
@@ -1044,6 +1058,8 @@ if st.session_state.step == 1:
 # =========================
 # STEP 2 — BANKDATEI & MAPPING
 # =========================
+st.caption(f"🏢 Mandant: {st.session_state.get('company_name') or '—'}")
+
 elif st.session_state.step == 2:
     if st.session_state.acct_df is None or st.session_state.acct_df.empty:
         st.warning("Bitte zuerst Schritt 1 abschließen (Kontenplan importieren).")
@@ -1179,6 +1195,8 @@ elif st.session_state.step == 2:
 # =========================
 # STEP 3 — KONTROLLE & IMPORT
 # =========================
+st.caption(f"🏢 Mandant: {st.session_state.get('company_name') or '—'}")
+
 elif st.session_state.step == 3:
     if st.session_state.bulk_df is None or st.session_state.bulk_df.empty:
         st.warning("Bitte zuerst Schritt 2 abschließen (Vorschau-Gitter erzeugen).")
