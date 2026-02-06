@@ -54,6 +54,68 @@
   --shadow-mini: 0 6px 16px rgba(15, 29, 43, 0.06);
 }
 
+
+.app-header{
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 6px 18px rgba(15,29,43,0.06);
+  padding: 12px 16px;
+  margin: 0 0 1rem 0;
+  border-radius: 14px;
+}
+
+.app-header-inner{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.solid-left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
+
+.app-logo{
+  height: 28px;
+  width:auto;
+  display:block;
+}
+
+.app-title{
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color:#0F1D2B;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.solid-right{
+  margin-left:auto;
+  display:flex;
+  align-items:center;
+}
+
+.client-pill{
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15,29,43,0.86);
+  border: 1px solid rgba(15,29,43,0.14);
+  background: rgba(245,247,255,0.85);
+  padding: 8px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+
+
 /* -----------------------------
    Base
 ------------------------------ */
