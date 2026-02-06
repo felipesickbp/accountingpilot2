@@ -1,5 +1,7 @@
 import os, time, base64, io
 import pandas as pd
+import sqlite3, json, hashlib
+from datetime import datetime
 import streamlit as st
 import requests
 import math, random
@@ -374,6 +376,116 @@ _inject_local_css()
 # =========================
 # SCHEMA & HELPERS
 # =========================
+
+
+DB_PATH = os.getenv("HISTORY_DB_PATH", "history.sqlite3")
+
+def _db():
+    # check_same_thread=False is fine for Streamlit single-process usage
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+def init_history_db():
+    con = _db()
+    cur = con.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS import_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id TEXT,
+            company_name TEXT,
+            created_at TEXT,
+            source_type TEXT,           -- "bank_upload" | "paste" | "empty"
+            source_name TEXT,           -- filename or "paste" etc.
+            rows_total INTEGER,
+            rows_ok INTEGER,
+            rows_error INTEGER,
+            ref_hash TEXT,              -- small fingerprint
+            meta_json TEXT,             -- optional meta
+            excel_blob BLOB             -- the downloadable excel
+        )
+    """)
+    con.commit()
+    con.close()
+
+def make_history_excel(rows_df: pd.DataFrame, results_df: pd.DataFrame) -> bytes:
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        rows_df.to_excel(writer, index=False, sheet_name="rows")
+        results_df.to_excel(writer, index=False, sheet_name="results")
+    return out.getvalue()
+
+def save_import_run(
+    *,
+    rows_df: pd.DataFrame,
+    results_df: pd.DataFrame,
+    source_type: str,
+    source_name: str,
+    meta: dict | None = None,
+):
+    init_history_db()
+
+    company_id = str(st.session_state.get("company_id") or "")
+    company_name = str(st.session_state.get("company_name") or "")
+    created_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    rows_total = int(len(results_df)) if results_df is not None else 0
+    rows_ok = int((results_df.get("status") == "OK").sum()) if results_df is not None and "status" in results_df.columns else 0
+    rows_error = rows_total - rows_ok
+
+    # small fingerprint so you can detect duplicates if you want
+    fp_src = (rows_df.astype(str).head(50).to_csv(index=False)).encode("utf-8", errors="ignore")
+    ref_hash = hashlib.sha256(fp_src).hexdigest()[:16]
+
+    excel_blob = make_history_excel(rows_df, results_df)
+
+    con = _db()
+    cur = con.cursor()
+    cur.execute(
+        """
+        INSERT INTO import_runs (
+            company_id, company_name, created_at,
+            source_type, source_name,
+            rows_total, rows_ok, rows_error,
+            ref_hash, meta_json, excel_blob
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            company_id, company_name, created_at,
+            source_type, source_name,
+            rows_total, rows_ok, rows_error,
+            ref_hash, json.dumps(meta or {}, ensure_ascii=False),
+            sqlite3.Binary(excel_blob),
+        ),
+    )
+    con.commit()
+    con.close()
+
+def list_import_runs(company_id: str | None = None, limit: int = 200) -> pd.DataFrame:
+    init_history_db()
+    con = _db()
+    if company_id:
+        df = pd.read_sql_query(
+            "SELECT id, company_id, company_name, created_at, source_type, source_name, rows_total, rows_ok, rows_error, ref_hash, meta_json FROM import_runs WHERE company_id=? ORDER BY id DESC LIMIT ?",
+            con,
+            params=(company_id, limit),
+        )
+    else:
+        df = pd.read_sql_query(
+            "SELECT id, company_id, company_name, created_at, source_type, source_name, rows_total, rows_ok, rows_error, ref_hash, meta_json FROM import_runs ORDER BY id DESC LIMIT ?",
+            con,
+            params=(limit,),
+        )
+    con.close()
+    return df
+
+def get_run_excel_blob(run_id: int) -> bytes | None:
+    init_history_db()
+    con = _db()
+    cur = con.cursor()
+    cur.execute("SELECT excel_blob FROM import_runs WHERE id=?", (int(run_id),))
+    row = cur.fetchone()
+    con.close()
+    return row[0] if row and row[0] else None
+
 
 
 def render_app_header(show_client_pill=True):
