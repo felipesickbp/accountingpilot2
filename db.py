@@ -1,17 +1,15 @@
 # db.py
 import os
 import json
+import uuid
 from datetime import datetime, date, timezone
-from sqlalchemy import create_engine, text, inspect
 
-DEFAULT_DB_URL = os.getenv("DATABASE_URL", "sqlite:///imports.db")
+from sqlalchemy import create_engine, text
 
 
+# ---------- JSON serialization helpers ----------
 def _json_default(o):
-    """
-    Convert numpy/pandas/date types to JSON-serializable Python types.
-    Prevents: Object of type int64 is not JSON serializable
-    """
+    """Convert numpy/pandas/date-like objects to JSON-serializable types."""
     # numpy
     try:
         import numpy as np
@@ -34,51 +32,63 @@ def _json_default(o):
     except Exception:
         pass
 
-    # datetime/date
+    # datetime / date
     if isinstance(o, datetime):
         return o.isoformat()
     if isinstance(o, date):
         return o.isoformat()
 
-    # last resort: stringify
     return str(o)
 
 
+def _safe_get_database_url() -> str:
+    """
+    Returns DATABASE_URL from:
+    1) Streamlit secrets (if available)
+    2) environment variable DATABASE_URL
+    3) fallback sqlite file
+    Never raises KeyError.
+    """
+    # 1) Streamlit secrets (optional)
+    try:
+        import streamlit as st
+        # st.secrets behaves like dict; use .get to avoid KeyError
+        url = st.secrets.get("DATABASE_URL")
+        if not url:
+            conn = st.secrets.get("connections", {}) or {}
+            sql = conn.get("sql", {}) or {}
+            url = sql.get("url")
+        if url and str(url).strip():
+            return str(url).strip()
+    except Exception:
+        pass
+
+    # 2) env var
+    url = os.getenv("DATABASE_URL")
+    if url and str(url).strip():
+        return str(url).strip()
+
+    # 3) fallback
+    return "sqlite:///imports.db"
+
+
 def get_engine(db_url: str | None = None):
-    """
-    Works with:
-    - Streamlit secrets DATABASE_URL (cloud)
-    - env var DATABASE_URL
-    - fallback sqlite:///imports.db
-    """
-    url = db_url
+    url = (db_url or "").strip() or _safe_get_database_url()
 
-    if not url:
-        try:
-            import streamlit as st
-            url = (
-                st.secrets.get("DATABASE_URL")
-                or st.secrets.get("connections", {}).get("sql", {}).get("url")
-            )
-        except Exception:
-            url = None
-
-    url = url or DEFAULT_DB_URL
-
+    # sqlite needs check_same_thread=False for Streamlit
     if url.startswith("sqlite"):
         return create_engine(url, connect_args={"check_same_thread": False})
+
     return create_engine(url, pool_pre_ping=True)
 
 
 def init_db(engine):
     """
-    IMPORTANT:
-    Your Postgres DB already has a table with NOT NULL payload_json (jsonb).
-    So we must keep payload_json in the schema and always write it.
+    Supports both:
+    - Postgres schema (payload_json NOT NULL, jsonb, bytea)
+    - SQLite schema (TEXT/BLOB)
 
-    This init is cross-db:
-    - Postgres: uuid + timestamptz + jsonb + bytea
-    - SQLite: TEXT + TEXT + TEXT + BLOB
+    If Postgres table already exists, this does NOT break it.
     """
     dialect = engine.dialect.name.lower()
 
@@ -102,7 +112,7 @@ def init_db(engine):
                 conn.execute(text(stmt))
         return
 
-    # SQLite (or other): keep same logical columns, simpler types.
+    # SQLite (or other)
     ddl = """
     CREATE TABLE IF NOT EXISTS imports (
         id           TEXT PRIMARY KEY,
@@ -121,30 +131,17 @@ def init_db(engine):
         for stmt in [s.strip() for s in ddl.split(";") if s.strip()]:
             conn.execute(text(stmt))
 
-    # If an old SQLite file exists without payload_json, add it safely.
-    try:
-        insp = inspect(engine)
-        cols = {c["name"] for c in insp.get_columns("imports")}
-        if "payload_json" not in cols:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE imports ADD COLUMN payload_json TEXT NOT NULL DEFAULT '[]'"))
-    except Exception:
-        pass
-
 
 def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=None, csv_bytes: bytes | None = None):
     """
-    Stores one import snapshot. Returns import_id (str).
-
-    - ALWAYS writes payload_json (because Postgres schema requires it NOT NULL)
-    - results_json can be NULL
-    - csv_bytes optional
+    Stores one import snapshot.
+    IMPORTANT: always writes payload_json (Postgres table requires NOT NULL).
     """
-    import uuid
-
     dialect = engine.dialect.name.lower()
 
-    # payload (what user posted / grid snapshot)
+    # payload from DataFrame or list-of-dicts
+    payload = []
+    row_count = 0
     try:
         import pandas as pd
         if isinstance(df_rows, pd.DataFrame):
@@ -163,12 +160,10 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
     if isinstance(csv_bytes, memoryview):
         csv_bytes = csv_bytes.tobytes()
 
-    # ids / time
     imp_id = str(uuid.uuid4())
-    now_iso = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     if "postgres" in dialect:
-        # insert with casts to jsonb to satisfy existing schema
         with engine.begin() as conn:
             conn.execute(
                 text("""
@@ -185,18 +180,19 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
                 """),
                 {
                     "id": imp_id,
-                    "created_at": now_iso,
+                    "created_at": created_at,
                     "tenant_id": str(tenant_id),
                     "tenant_name": str(tenant_name or ""),
                     "row_count": int(row_count),
                     "payload_json": payload_json,
+                    # if results_json is None, cast('[]') is safer than NULL for some setups
                     "results_json": results_json if results_json is not None else "[]",
                     "csv_bytes": csv_bytes,
                 },
             )
         return imp_id
 
-    # SQLite / other: plain TEXT columns
+    # SQLite
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -211,7 +207,7 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
             """),
             {
                 "id": imp_id,
-                "created_at": now_iso,
+                "created_at": created_at,
                 "tenant_id": str(tenant_id),
                 "tenant_name": str(tenant_name or ""),
                 "row_count": int(row_count),
@@ -225,9 +221,6 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
 
 
 def list_imports(engine, tenant_id: str, limit: int = 30):
-    """
-    Returns list of dicts: id, created_at, row_count, tenant_name
-    """
     with engine.begin() as conn:
         rows = conn.execute(
             text("""
@@ -239,14 +232,10 @@ def list_imports(engine, tenant_id: str, limit: int = 30):
             """),
             {"tenant_id": str(tenant_id), "limit": int(limit)},
         ).mappings().all()
-
     return [dict(r) for r in rows]
 
 
 def get_import_csv(engine, import_id: str) -> tuple[bytes, str]:
-    """
-    Returns (csv_bytes, filename). Raises if not found.
-    """
     with engine.begin() as conn:
         row = conn.execute(
             text("SELECT id, csv_bytes FROM imports WHERE id = :id"),
@@ -264,14 +253,12 @@ def get_import_csv(engine, import_id: str) -> tuple[bytes, str]:
 
 
 def delete_import(engine, tenant_id: str, import_id: str) -> int:
-    """
-    Deletes one import (scoped by tenant_id). Returns number of deleted rows (0/1).
-    """
     with engine.begin() as conn:
         res = conn.execute(
             text("DELETE FROM imports WHERE id = :id AND tenant_id = :tenant_id"),
             {"id": str(import_id), "tenant_id": str(tenant_id)},
         )
         return int(res.rowcount or 0)
+
 
 
