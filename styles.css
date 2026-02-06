@@ -289,34 +289,47 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checke
    IMPORTANT: Do NOT touch .btn / .lp-* because login CSS is injected in app.py.
 ------------------------------ */
 
-/* Primary buttons */
+/* Primary buttons (navy + readable text/icons) */
 div[data-testid="stFormSubmitButton"] > button,
 [data-testid^="baseButton-primary"] > button,
 button[kind="primary"]{
-  background: linear-gradient(90deg, var(--accent-a), var(--accent-b)) !important;
-  color: var(--primary-ink) !important;
-  border: 1px solid rgba(37,99,235,0.35) !important;
+  background: #0B1F3A !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(11,31,58,0.55) !important;
   border-radius: 14px !important;
   padding: 12px 18px !important;
   font-weight: 900 !important;
   letter-spacing: .15px !important;
-  box-shadow: 0 12px 28px rgba(37,99,235,.20), 0 10px 26px rgba(139,92,246,.14) !important;
+  box-shadow: 0 12px 28px rgba(11,31,58,.18) !important;
   transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
 }
+
+/* Force inner label + icons to be white (ONLY for primary buttons) */
+div[data-testid="stFormSubmitButton"] > button :is(span,p,div,svg,path),
+[data-testid^="baseButton-primary"] > button :is(span,p,div,svg,path),
+button[kind="primary"] :is(span,p,div,svg,path){
+  color: #FFFFFF !important;
+  fill: #FFFFFF !important;
+  opacity: 1 !important;
+}
+
 div[data-testid="stFormSubmitButton"] > button:hover,
 [data-testid^="baseButton-primary"] > button:hover,
 button[kind="primary"]:hover{
-  filter: brightness(1.03) saturate(1.05);
+  filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 18px 40px rgba(37,99,235,.22), 0 16px 36px rgba(139,92,246,.16) !important;
+  box-shadow: 0 18px 40px rgba(11,31,58,.22) !important;
 }
+
 div[data-testid="stFormSubmitButton"] > button:disabled,
-[data-testid^="baseButton-primary"] > button:disabled{
+[data-testid^="baseButton-primary"] > button:disabled,
+button[kind="primary"]:disabled{
   opacity: .65 !important;
   filter: none !important;
   box-shadow: none !important;
   transform: none !important;
 }
+
 
 /* Secondary / outline */
 [data-testid^="baseButton-secondary"] > button,
