@@ -733,17 +733,59 @@ STEP_LABELS = {
     3: "3) Kontrolle & Import",
 }
 
+# =========================
+# SIDEBAR NAV
+# =========================
+STEP_LABELS = {
+    1: "1) Kontenplan",
+    2: "2) Bankdatei",
+    3: "3) Kontrolle & Import",
+}
+
 def sidebar_nav():
     from pathlib import Path
     import streamlit as st
 
+    # -------------------------
+    # Helpers
+    # -------------------------
+    def _mandate_switch():
+        """
+        Clear OAuth + company context so user is forced through bexio selection again.
+        Opens in SAME tab because your login links already use target="_self".
+        """
+        for k in [
+            "oauth",
+            "company_profile", "company_name", "company_id",
+            "selected_import_id",
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
+        # (optional) keep step at 1 to avoid confusing partially loaded state
+        st.session_state.step = 1
+        st.rerun()
+
     # =========================
-    # LOGO (top-left)
+    # LOGO
     # =========================
     logo_path = Path("assets/logo.webp")
     if logo_path.exists():
         st.sidebar.image(str(logo_path), width=200)
 
+    # =========================
+    # MANDANT (switch)
+    # =========================
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🏢 Mandant")
+    st.sidebar.write(st.session_state.get("company_name") or "—")
+
+    # One clear switch button (reliable)
+    if st.sidebar.button("🔄 Mandant wechseln", use_container_width=True):
+        _mandate_switch()
+
+    # =========================
+    # NAVIGATION
+    # =========================
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Navigation")
 
@@ -751,14 +793,13 @@ def sidebar_nav():
     current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
 
     chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
-
     new_step = {v: k for k, v in STEP_LABELS.items()}[chosen]
     if new_step != st.session_state.step:
         st.session_state.step = new_step
         st.rerun()
 
     # =========================
-    # IMPORT HISTORY (per tenant) — clickable rows (no extra buttons)
+    # IMPORT HISTORY
     # =========================
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📥 Vergangene Imports")
@@ -778,12 +819,12 @@ def sidebar_nav():
         if "selected_import_id" not in st.session_state:
             st.session_state.selected_import_id = None
 
-        # CSS (sidebar only): card row + compact icon buttons
+        # Sidebar-scoped CSS: card row + square icon buttons
         st.sidebar.markdown(
             """
             <style>
-              /* Main card buttons inside sidebar expander */
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button{
+              /* Scope: only sidebar */
+              section[data-testid="stSidebar"] .imp-row .stButton > button{
                 width: 100% !important;
                 text-align: left !important;
                 white-space: normal !important;
@@ -795,25 +836,42 @@ def sidebar_nav():
                 background: rgba(255,255,255,0.55) !important;
                 box-shadow: 0 6px 16px rgba(15,29,43,0.05) !important;
               }
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button:hover{
+              section[data-testid="stSidebar"] .imp-row .stButton > button:hover{
                 border-color: rgba(31,92,255,0.45) !important;
                 background: rgba(31,92,255,0.08) !important;
               }
 
-              /* Make download/delete icon buttons compact */
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stDownloadButton > button,
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton.icon-btn > button{
-                padding: 10px 0 !important;
-                text-align: center !important;
-                border-radius: 10px !important;
+              /* Selected card: we add class to container below */
+              section[data-testid="stSidebar"] .imp-selected .stButton > button{
+                border-color: rgba(31,92,255,0.90) !important;
+                background: rgba(31,92,255,0.12) !important;
+              }
+
+              /* Icon buttons (download + delete) */
+              section[data-testid="stSidebar"] .imp-icons div[data-testid="stDownloadButton"] > button,
+              section[data-testid="stSidebar"] .imp-icons .stButton > button{
+                width: 40px !important;
+                min-width: 40px !important;
+                height: 40px !important;
+                padding: 0 !important;
+                margin: 6px 0 !important;
+                border-radius: 12px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
                 font-weight: 900 !important;
               }
 
-              /* Keep icons dark on light buttons */
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stDownloadButton > button *,
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton.icon-btn > button *{
+              /* Keep emoji/text readable on light icon buttons */
+              section[data-testid="stSidebar"] .imp-icons button *{
                 color: #0F1D2B !important;
                 opacity: 1 !important;
+              }
+
+              /* Reduce column gutter within rows */
+              section[data-testid="stSidebar"] .imp-row [data-testid="stHorizontalBlock"]{
+                gap: 8px !important;
+                align-items: center !important;
               }
             </style>
             """,
@@ -827,20 +885,23 @@ def sidebar_nav():
                 row_count = int(r.get("row_count", 0) or 0)
                 tname = (r.get("tenant_name") or tenant_name or "").strip()
 
-                # created_at is stored as ISO string in db.py; show first 16 chars
                 created_str = str(created).replace("T", " ")[:16]
-
                 is_selected = (st.session_state.selected_import_id == imp_id)
+
                 label = f"{created_str}{' ✓' if is_selected else ''}\n{tname} · {row_count} Zeilen"
+
+                row_cls = "imp-row imp-selected" if is_selected else "imp-row"
+                st.markdown(f'<div class="{row_cls}">', unsafe_allow_html=True)
 
                 c_main, c_dl, c_del = st.columns([10, 1.4, 1.2], gap="small")
 
-                # Select (card)
+                # Select import (card)
                 if c_main.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
                     st.session_state.selected_import_id = imp_id
                     st.rerun()
 
-                # Download
+                # Icons container
+                c_dl.markdown('<div class="imp-icons">', unsafe_allow_html=True)
                 try:
                     csv_bytes, fname = get_import_csv(engine, import_id=imp_id)
                     c_dl.download_button(
@@ -853,28 +914,32 @@ def sidebar_nav():
                         help="CSV herunterladen",
                     )
                 except Exception:
-                    # render disabled placeholder
-                    c_dl.button("⬇️", key=f"imp_dl_disabled_{imp_id}", use_container_width=True, disabled=True)
+                    c_dl.download_button(
+                        "⬇️",
+                        data=b"",
+                        file_name="import.csv",
+                        mime="text/csv",
+                        key=f"imp_dl_disabled_{imp_id}",
+                        use_container_width=True,
+                        disabled=True,
+                        help="CSV nicht verfügbar",
+                    )
+                c_dl.markdown("</div>", unsafe_allow_html=True)
 
-                # Delete
-                # make it a tiny "icon style" button via class hook
-                c_del.markdown('<div class="stButton icon-btn">', unsafe_allow_html=True)
+                c_del.markdown('<div class="imp-icons">', unsafe_allow_html=True)
                 do_del = c_del.button("✖", key=f"imp_del_{imp_id}", use_container_width=True, help="Import löschen")
-                c_del.markdown('</div>', unsafe_allow_html=True)
+                c_del.markdown("</div>", unsafe_allow_html=True)
 
                 if do_del:
                     try:
                         deleted = delete_import(engine, tenant_id=tenant_id, import_id=imp_id)
-                        if deleted:
-                            if st.session_state.get("selected_import_id") == imp_id:
-                                st.session_state.selected_import_id = None
-                            st.rerun()
-                        else:
-                            st.sidebar.warning("Nichts gelöscht (evtl. falscher Mandant?).")
+                        if deleted and st.session_state.get("selected_import_id") == imp_id:
+                            st.session_state.selected_import_id = None
+                        st.rerun()
                     except Exception as e:
                         st.sidebar.error(f"Löschen fehlgeschlagen: {e}")
 
-
+                st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================
     # RESET
@@ -890,6 +955,7 @@ def sidebar_nav():
                 del st.session_state[k]
         st.session_state.step = 1
         st.rerun()
+
 
 
 
@@ -1152,19 +1218,17 @@ sidebar_nav()
 # --- Top header row: right-aligned, prominent tenant badge ---
 company_name = (st.session_state.get("company_name") or "—").strip()
 
-c_left, c_right = st.columns([6, 4])
+c_left, c_right = st.columns([6, 4], vertical_alignment="top")
+
 with c_left:
-    st.write("")  # keep left side empty (or put a page title here later)
+    st.write("")
 
 with c_right:
+    company_name = (st.session_state.get("company_name") or "—").strip()
+
     st.markdown(
         f"""
-        <div style="
-            display:flex;
-            justify-content:flex-end;
-            align-items:center;
-            margin-top:-6px;
-        ">
+        <div style="display:flex; justify-content:flex-end; margin-top:-6px;">
           <div style="
               padding:10px 14px;
               border-radius:14px;
@@ -1172,6 +1236,7 @@ with c_right:
               background: rgba(255,255,255,0.86);
               box-shadow: 0 10px 26px rgba(15,29,43,0.08);
               font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+              width: fit-content;
           ">
             <div style="font-size:12px; font-weight:800; color: rgba(15,29,43,0.60); letter-spacing:.02em;">
               🏢 MANDANT
@@ -1184,6 +1249,16 @@ with c_right:
         """,
         unsafe_allow_html=True,
     )
+
+    # right-aligned button under the badge
+    b1, b2 = st.columns([1, 1])
+    with b2:
+        if st.button("🔄 Mandant wechseln", key="top_mandate_switch", use_container_width=True):
+            for k in ["oauth", "company_profile", "company_name", "company_id", "selected_import_id"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.session_state.step = 1
+            st.rerun()
 
 
 if st.session_state.step == 1:
