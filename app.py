@@ -1558,28 +1558,11 @@ elif st.session_state.step == 3:
     )
     st.session_state.bulk_df = ensure_schema(st.session_state.bulk_df)
 
-    # ---------- batching controls ----------
-    with st.expander("Erweitert: Stabilität & Performance", expanded=False):
-        colC, colD = st.columns(2)
-    
-        batch_size = int(colC.number_input(
-            "Batch-Grösse",
-            min_value=1,
-            max_value=200,
-            value=int(st.session_state.batch_size),
-            step=1,
-            key="batch_size",
-        ))
-    
-        sleep_between_batches = float(colD.number_input(
-            "Pause zwischen Batches (Sek.)",
-            min_value=0.0,
-            max_value=120.0,
-            value=float(st.session_state.sleep_between_batches),
-            step=1.0,
-            key="sleep_between_batches",
-        ))
-    # ---------------------------------------
+    # ---------- batching defaults (no UI) ----------
+    batch_size = int(st.session_state.get("batch_size", 25))
+    sleep_between_batches = float(st.session_state.get("sleep_between_batches", 15.0))
+    # ---------------------------------------------
+
 
 
     # Mapping: VAT code → VAT ledger (fallback if Bexio requires explicit tax_account_id)
