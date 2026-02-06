@@ -1058,7 +1058,7 @@ if st.session_state.step == 1:
 # =========================
 # STEP 2 — BANKDATEI & MAPPING
 # =========================
-st.caption(f"🏢 Mandant: {st.session_state.get('company_name') or '—'}")
+
 
 elif st.session_state.step == 2:
     if st.session_state.acct_df is None or st.session_state.acct_df.empty:
@@ -1195,7 +1195,7 @@ elif st.session_state.step == 2:
 # =========================
 # STEP 3 — KONTROLLE & IMPORT
 # =========================
-st.caption(f"🏢 Mandant: {st.session_state.get('company_name') or '—'}")
+
 
 elif st.session_state.step == 3:
     if st.session_state.bulk_df is None or st.session_state.bulk_df.empty:
