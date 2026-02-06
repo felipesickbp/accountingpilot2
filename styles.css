@@ -1,175 +1,347 @@
-/* ===== Top centered logo ===== */
-.top-logo{
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  padding: 1rem 0 1.25rem 0;  /* ✅ adds safe space above the logo */
-  margin: 0;                  /* ✅ avoid any margin-collapsing weirdness */
-}
+/* =========================================================
+   styles.css — DESIGN ONLY
+   Streamlit app: Accounting Copilot
+   - Safe global polish
+   - Improves simple login (.login-wrap) without breaking
+     the in-app injected Amnis-like login (.lp-*)
+   ========================================================= */
 
-.top-logo img{
-  width: 126px;               /* ~70% of 180px */
-  height: auto;
-  display:block;
-  object-fit: contain;
-}
-
-
-/* ===== Brand ===== */
+/* -----------------------------
+   Brand tokens
+------------------------------ */
 :root{
-  --bg:#fff;
-  --card:#F5F7FA;
-  --border:#E5E7EB;
-  --text:#0F1D2B;
-  --muted:rgba(15,29,43,.9);
+  --bg: #ffffff;
+  --bg-soft: #F6F8FC;
+  --card: #FFFFFF;
+  --card-soft: #F5F7FA;
 
-  --primary:#0F4C81;        /* CTA buttons */
-  --primary-ink:#FFFFFF;    /* CTA text */
-  --primary-hover:#1F5D9E;  /* CTA hover */
-  --outline:#CBD5E1;        /* outline pills */
+  --border: rgba(15, 29, 43, 0.10);
+  --border-strong: rgba(15, 29, 43, 0.16);
+
+  --text: #0F1D2B;
+  --muted: rgba(15, 29, 43, 0.74);
+
+  --primary: #0F4C81;
+  --primary-hover: #1F5D9E;
+  --primary-ink: #FFFFFF;
+
+  --outline: #CBD5E1;
+  --ring: rgba(15, 76, 129, 0.22);
+  --ring-strong: rgba(15, 76, 129, 0.34);
+
+  --radius-card: 18px;
+  --radius: 12px;
+  --radius-pill: 999px;
+
+  --shadow: 0 12px 38px rgba(15, 29, 43, 0.10);
+  --shadow-soft: 0 10px 26px rgba(15, 29, 43, 0.08);
 }
 
-/* --- Layout spacing --- */
-.block-container { padding-top: 3rem; }
-
-/* Center container for the whole login view */
-.login-center {
-  min-height: calc(100vh - 6rem); /* adjust if your top padding differs */
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* -----------------------------
+   Base
+------------------------------ */
+html, body{
+  background: var(--bg) !important;
+  color: var(--text) !important;
 }
 
-
-
-/* --- Login card --- */
-.login-wrap {
-  max-width: 560px;
-  margin: 0 auto;
-  padding: 28px;
-  border-radius: 18px;
-  border: 1px solid rgba(0,0,0,0.10);
-  background: #fff;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+[data-testid="stAppViewContainer"]{
+  color: var(--text) !important;
 }
 
-.login-title {
-  font-size: 1.9rem;
-  font-weight: 750;
-  margin: 0 0 .25rem 0;
+/* Keep your own ui_shell spacing intact: don't fight app.py too hard */
+.block-container{
+  max-width: 1200px !important;
+  padding-bottom: 3rem !important;
 }
 
-/* --- Login centering override (put at END of file) --- */
-.login-page{
-  width: 100%;
-  min-height: calc(100vh - 1.5rem); /* match your .block-container padding-top */
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Typography */
+h1, h2, h3, h4{
+  color: var(--text) !important;
+  letter-spacing: -0.2px;
 }
 
-.login-wrap{
-  width: min(560px, 92vw);
-  margin: 0;                 /* important: flex does centering, no auto margins needed */
+p, label, .stMarkdown, .stCaption{
+  color: var(--muted) !important;
 }
 
-
-.login-sub {
-  opacity: .8;
-  margin: 0 0 1.2rem 0;
-  line-height: 1.45;
-}
-
-.cta {
-  display: block;
-  text-align: center;
-  padding: 12px 14px;
-  border-radius: 12px;
-  font-weight: 650;
+a{
+  color: var(--text) !important;
   text-decoration: none;
-  border: 1px solid rgba(0,0,0,0.08);
-  background: #1f77b4;
-  color: #fff !important;
+}
+a:hover{
+  color: #1F2E44 !important;
+  text-decoration: underline;
 }
 
-.cta:hover { filter: brightness(0.95); }
-
-.small-hint {
-  opacity: .65;
-  margin-top: 1rem;
-  font-size: .9rem;
+/* -----------------------------
+   Cards / containers
+------------------------------ */
+[data-testid="stExpander"]{
+  background: var(--card-soft) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: 0 6px 18px rgba(15,29,43,0.04) !important;
 }
 
-/* ===== Base ===== */
-html,body,[data-testid="stAppViewContainer"]{background:var(--bg)!important;color:var(--text)!important;}
-.block-container{max-width:1200px;padding-top:1.5rem!important;padding-bottom:3rem!important;}
-h1,h2,h3{color:var(--text)!important;letter-spacing:.2px;}
-h1{font-size:1.8rem!important;margin:.25rem 0 22px;}
-h2{font-size:1.35rem!important;margin:1rem 0 .5rem;}
-h3{font-size:1.05rem!important;margin:.75rem 0 .25rem;}
-p,label,.stMarkdown,.stCaption{color:var(--muted)!important;}
-a{color:var(--text)!important;text-decoration:none;}
-a:hover{color:#1F2E44!important;text-decoration:underline;}
+/* Expander header nicer */
+[data-testid="stExpander"] summary{
+  font-weight: 700 !important;
+  color: var(--text) !important;
+}
 
-/* ===== Cards / Tables ===== */
-[data-testid="stExpander"]{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:12px!important;}
-[data-testid="stTable"] table,.stDataFrame,[data-testid="StyledDataFrame"]{border:1px solid var(--border)!important;border-radius:10px!important;overflow:hidden!important;}
-[data-testid="stDataFrameResizable"] thead tr th{background:var(--card)!important;color:var(--text)!important;}
+/* -----------------------------
+   Tables / DataFrames
+------------------------------ */
+[data-testid="stTable"] table,
+.stDataFrame,
+[data-testid="StyledDataFrame"]{
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  background: #fff !important;
+}
 
-/* ===== Inputs ===== */
-.stTextInput input,.stNumberInput input,.stDateInput input,
-.stSelectbox div[data-baseweb="select"] input,.stSelectbox>div>div{
-  background:#fff!important;color:var(--text)!important;border:1px solid var(--border)!important;border-radius:10px!important;
+[data-testid="stDataFrameResizable"] thead tr th{
+  background: var(--card-soft) !important;
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
+
+/* Improve grid cell feel */
+[data-testid="stDataFrameResizable"] tbody tr td{
+  border-top: 1px solid rgba(15,29,43,0.06) !important;
+}
+
+/* -----------------------------
+   Inputs (global but safe)
+------------------------------ */
+.stTextInput input,
+.stNumberInput input,
+.stDateInput input,
+.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] input,
+.stSelectbox > div > div{
+  background: #fff !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(15,29,43,0.14) !important;
+  border-radius: var(--radius) !important;
+  transition: box-shadow .15s ease, border-color .15s ease, transform .05s ease;
+}
+
+/* Focus ring */
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stDateInput input:focus,
+.stTextArea textarea:focus,
+.stSelectbox div[data-baseweb="select"] input:focus{
+  border-color: rgba(15,76,129,0.40) !important;
+  box-shadow: 0 0 0 4px var(--ring) !important;
+  outline: none !important;
 }
 
 /* File uploader */
-[data-testid="stFileUploaderDropzone"]{background:var(--card)!important;border:1px dashed var(--border)!important;border-radius:12px!important;}
-
-/* ===== Step flow row (no arrows) ===== */
-[data-testid="stHorizontalBlock"]:first-of-type{
-  display:flex;align-items:center;gap:14px;
+[data-testid="stFileUploaderDropzone"]{
+  background: var(--card-soft) !important;
+  border: 1px dashed rgba(15,29,43,0.18) !important;
+  border-radius: 14px !important;
 }
-[data-testid="stHorizontalBlock"]:first-of-type>div{flex:0 0 auto;}
-[data-testid="stHorizontalBlock"]:first-of-type>div:nth-child(4){margin-left:auto;} /* reset to the right */
 
-/* Step pills = outline buttons */
-[data-testid="stHorizontalBlock"]:first-of-type .stButton>button{
-  background:#fff!important;color:var(--text)!important;border:1px solid var(--outline)!important;
-  border-radius:999px!important;padding:8px 14px!important;font-weight:600!important;
-}
-[data-testid="stHorizontalBlock"]:first-of-type .stButton>button:hover{border-color:#94A3B8!important;}
-
-/* ===== Buttons (global) ===== */
-/* Primary CTAs: st.form_submit_button, baseButton primary, and any primary-kind buttons */
-div[data-testid="stFormSubmitButton"]>button,
-[data-testid^="baseButton-primary"]>button,
+/* -----------------------------
+   Buttons (global)
+   IMPORTANT: Do NOT touch .btn / .lp-* because app.py injects login CSS.
+------------------------------ */
+div[data-testid="stFormSubmitButton"] > button,
+[data-testid^="baseButton-primary"] > button,
 button[kind="primary"]{
-  background:var(--primary)!important;color:var(--primary-ink)!important;
-  border:1px solid var(--primary-hover)!important;border-radius:12px!important;
-  padding:12px 18px!important;font-weight:700!important;letter-spacing:.2px;
-  box-shadow:0 6px 18px rgba(15,76,129,.25)!important;transition:transform .06s,box-shadow .2s,filter .15s;
+  background: var(--primary) !important;
+  color: var(--primary-ink) !important;
+  border: 1px solid rgba(31,93,158,.45) !important;
+  border-radius: 14px !important;
+  padding: 12px 18px !important;
+  font-weight: 800 !important;
+  letter-spacing: .15px !important;
+  box-shadow: 0 10px 26px rgba(15,76,129,.22) !important;
+  transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
 }
-div[data-testid="stFormSubmitButton"]>button:hover,
-[data-testid^="baseButton-primary"]>button:hover,
+
+div[data-testid="stFormSubmitButton"] > button:hover,
+[data-testid^="baseButton-primary"] > button:hover,
 button[kind="primary"]:hover{
-  background:var(--primary-hover)!important;transform:translateY(-1px);
-  box-shadow:0 10px 22px rgba(31,93,158,.30)!important;
+  background: var(--primary-hover) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(15,76,129,.26) !important;
+  filter: brightness(1.02);
 }
-div[data-testid="stFormSubmitButton"]>button:disabled,
-[data-testid^="baseButton-primary"]>button:disabled{opacity:.6!important;box-shadow:none!important;transform:none!important;}
 
-/* Secondary / outline */
-[data-testid^="baseButton-secondary"]>button,button[kind="secondary"]{
-  background:#fff!important;color:var(--primary)!important;border:1px solid var(--primary)!important;border-radius:999px!important;font-weight:600!important;
+div[data-testid="stFormSubmitButton"] > button:disabled,
+[data-testid^="baseButton-primary"] > button:disabled{
+  opacity: .6 !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
-[data-testid^="baseButton-secondary"]>button:hover,button[kind="secondary"]:hover{background:rgba(15,76,129,.06)!important;}
 
-/* Regular st.button (non-CTA) */
-.stButton>button{
-  background:#fff!important;color:var(--text)!important;border:1px solid var(--outline)!important;border-radius:10px!important;
-  padding:.55rem 1rem!important;font-weight:600!important;
+/* Secondary */
+[data-testid^="baseButton-secondary"] > button,
+button[kind="secondary"]{
+  background: #fff !important;
+  color: var(--primary) !important;
+  border: 1px solid rgba(15,76,129,.55) !important;
+  border-radius: var(--radius-pill) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 6px 18px rgba(15,29,43,.06) !important;
 }
-.stButton>button:hover{border-color:#94A3B8!important;}
+[data-testid^="baseButton-secondary"] > button:hover,
+button[kind="secondary"]:hover{
+  background: rgba(15,76,129,.06) !important;
+}
+
+/* Regular st.button (non kind=primary/secondary) */
+.stButton > button{
+  background: #fff !important;
+  color: var(--text) !important;
+  border: 1px solid var(--outline) !important;
+  border-radius: var(--radius) !important;
+  padding: .55rem 1rem !important;
+  font-weight: 700 !important;
+}
+.stButton > button:hover{
+  border-color: #94A3B8 !important;
+}
+
+/* Download button */
+div[data-testid="stDownloadButton"] > button,
+div[data-testid="stDownloadButton"] a{
+  background: var(--primary) !important;
+  color: #fff !important;
+  border: 1px solid rgba(31,93,158,.45) !important;
+  border-radius: 14px !important;
+  padding: .6rem 1.1rem !important;
+  font-weight: 800 !important;
+  text-decoration: none !important;
+}
+div[data-testid="stDownloadButton"] > button:hover,
+div[data-testid="stDownloadButton"] a:hover{
+  background: var(--primary-hover) !important;
+}
+
+/* -----------------------------
+   Step flow row styling
+   (kept close to your existing logic)
+------------------------------ */
+[data-testid="stHorizontalBlock"]:first-of-type{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+[data-testid="stHorizontalBlock"]:first-of-type > div{
+  flex: 0 0 auto;
+}
+
+[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4){
+  margin-left: auto;
+}
+
+[data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
+  background: #fff !important;
+  color: var(--text) !important;
+  border: 1px solid var(--outline) !important;
+  border-radius: var(--radius-pill) !important;
+  padding: 8px 14px !important;
+  font-weight: 800 !important;
+}
+[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover{
+  border-color: #94A3B8 !important;
+}
+
+/* =========================================================
+   SIMPLE LOGIN PAGE (used by the later render_login_page())
+   Styles are scoped to .login-wrap, .cta, etc.
+   These do NOT affect the Amnis-like login (.lp-*) in app.py.
+   ========================================================= */
+
+/* Center card better if Streamlit container is present */
+.login-wrap{
+  width: min(560px, 92vw);
+  margin: 7vh auto 0 auto;
+  padding: 34px 30px 28px 30px;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: var(--shadow);
+  transition: transform .14s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.login-wrap:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 18px 60px rgba(15,29,43,0.14);
+  border-color: rgba(15,29,43,0.14);
+}
+
+.login-title{
+  font-size: 2.0rem;
+  font-weight: 900;
+  margin: 0 0 .35rem 0;
+  letter-spacing: -0.35px;
+  color: var(--text);
+}
+
+.login-sub{
+  opacity: .84;
+  margin: 0 0 1.35rem 0;
+  line-height: 1.55;
+}
+
+/* CTA button used on simple login */
+a.cta{
+  display: block;
+  text-align: center;
+  padding: 13px 14px;
+  border-radius: 14px;
+  font-weight: 900;
+  letter-spacing: .2px;
+  text-decoration: none !important;
+  border: 1px solid rgba(31,93,158,.45);
+  background: linear-gradient(180deg, var(--primary), var(--primary-hover));
+  color: #fff !important;
+  box-shadow: 0 12px 28px rgba(15,76,129,.22);
+  transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
+}
+
+a.cta:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 18px 40px rgba(15,76,129,.26);
+  filter: brightness(1.02);
+}
+
+.small-hint{
+  opacity: .72;
+  margin-top: 1rem;
+  font-size: .95rem;
+}
+.small-hint a{
+  color: var(--primary) !important;
+  font-weight: 700;
+}
+.small-hint a:hover{
+  text-decoration: underline;
+}
+
+/* Mobile tweaks */
+@media (max-width: 520px){
+  .login-wrap{ padding: 28px 20px; border-radius: 18px; }
+  .login-title{ font-size: 1.75rem; }
+}
+
+/* =========================================================
+   SAFETY: Do not override the injected login ("lp-*") system
+   ========================================================= */
+.lp-wrap, .lp-card, .lp-brand, .lp-actions, .lp-links, .lp-note,
+.btn, .btn-primary, .btn-secondary{
+  /* intentionally left untouched */
+}
+
 
 /* Download (button or <a>) */
 div[data-testid="stDownloadButton"]>button,div[data-testid="stDownloadButton"] a{
