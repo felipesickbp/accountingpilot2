@@ -3,7 +3,7 @@
    Streamlit app: Accounting Copilot / Burkhart & Partners
    Goals:
    - Improve readability (esp. important buttons)
-   - Softer “product UI” look (like your colleague’s screenshots)
+   - Softer “product UI” look
    - Keep app functionality untouched
    - Do NOT interfere with injected login system (.lp-* / .btn) in app.py
    ========================================================= */
@@ -30,9 +30,9 @@
   --text: #0F1D2B;
   --muted: rgba(15, 29, 43, 0.74);
 
-  /* Accents (closer to colleague screenshots: purple → blue) */
-  --accent-a: #8B5CF6;             /* purple */
-  --accent-b: #2563EB;             /* blue */
+  /* Accents (purple → blue) */
+  --accent-a: #8B5CF6;
+  --accent-b: #2563EB;
   --accent-b-hover: #1D4ED8;
 
   /* Buttons */
@@ -63,9 +63,7 @@ html, body{
   background: var(--bg-soft) !important;
 }
 
-/* Streamlit root containers
-   IMPORTANT: do NOT force background with !important here
-   so app.py can still paint login background when it injects its own CSS */
+/* App background */
 [data-testid="stAppViewContainer"]{
   color: var(--text) !important;
   background:
@@ -81,7 +79,7 @@ html, body{
     linear-gradient(180deg, var(--bg-soft), var(--bg-soft-2));
 }
 
-/* Optional: try to make Streamlit header transparent (may or may not apply depending on version) */
+/* Optional: try to make Streamlit header transparent */
 header[data-testid="stHeader"]{
   background: rgba(255,255,255,0.0) !important;
 }
@@ -106,11 +104,10 @@ a{ color: var(--text) !important; text-decoration: none; }
 a:hover{ color: #1F2E44 !important; text-decoration: underline; }
 
 /* -----------------------------
-   Sidebar (Navigation + pure menu, no dots)
+   Sidebar (clean, reliable nav)
 ------------------------------ */
 section[data-testid="stSidebar"]{
   background:
-    /* subtle fade to white at the very top for consistency */
     linear-gradient(180deg,
       rgba(255,255,255,1) 0px,
       rgba(255,255,255,0.85) 80px,
@@ -129,10 +126,12 @@ section[data-testid="stSidebar"] > div{
 }
 
 /* -----------------------------
-   Sidebar Navigation (pure menu, hide radio indicators reliably)
+   Sidebar Navigation: "pure menu"
+   IMPORTANT: we must NOT hide the whole [data-baseweb="radio"] node,
+   because it contains the label text. We only hide the small indicator.
 ------------------------------ */
 
-/* Make the radiogroup NOT look like a big card */
+/* Remove the big "card" around the radio group */
 section[data-testid="stSidebar"] [role="radiogroup"]{
   background: transparent !important;
   border: 0 !important;
@@ -141,33 +140,11 @@ section[data-testid="stSidebar"] [role="radiogroup"]{
   box-shadow: none !important;
 }
 
-/* Hide ALL radio indicators (Streamlit/BaseWeb variants) */
-section[data-testid="stSidebar"] [role="radiogroup"] input[type="radio"]{
-  position: absolute !important;
-  opacity: 0 !important;
-  width: 0 !important;
-  height: 0 !important;
-  pointer-events: none !important;
-}
-
-/* BaseWeb radio mark containers (common Streamlit DOM) */
-section[data-testid="stSidebar"] [role="radiogroup"] [data-baseweb="radio"]{
-  display: none !important;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] span[role="radio"],
-section[data-testid="stSidebar"] [role="radiogroup"] div[role="radio"]{
-  display: none !important;
-}
-
-/* Any SVG that might be used as the dot */
-section[data-testid="stSidebar"] [role="radiogroup"] label svg{
-  display: none !important;
-}
-
-/* Each option becomes a clean nav row */
+/* Each option becomes a clean menu row */
 section[data-testid="stSidebar"] [role="radiogroup"] label{
   display: flex !important;
   align-items: center !important;
+  gap: 10px !important;
 
   border-radius: 12px !important;
   padding: 10px 12px !important;
@@ -179,8 +156,19 @@ section[data-testid="stSidebar"] [role="radiogroup"] label{
   transition: background .12s ease, border-color .12s ease, transform .06s ease;
 }
 
-/* Text style inside nav row */
-section[data-testid="stSidebar"] [role="radiogroup"] label p{
+/* Hide only the radio dot / indicator (BaseWeb) but keep text visible */
+section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child{
+  display: none !important;   /* this is the indicator column in Streamlit/BaseWeb */
+}
+
+/* Also hide any SVG inside the label (sometimes used for the dot) */
+section[data-testid="stSidebar"] [role="radiogroup"] label svg{
+  display: none !important;
+}
+
+/* Ensure the label text is styled */
+section[data-testid="stSidebar"] [role="radiogroup"] label p,
+section[data-testid="stSidebar"] [role="radiogroup"] label span{
   margin: 0 !important;
   font-weight: 800 !important;
   color: rgba(15,29,43,0.86) !important;
@@ -192,13 +180,12 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
   border-color: rgba(37,99,235,0.18) !important;
 }
 
-/* Selected = active menu item */
+/* Selected item (Streamlit sets aria-checked on the hidden input) */
 section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checked="true"]){
   background: linear-gradient(90deg, rgba(139,92,246,0.14), rgba(37,99,235,0.10)) !important;
   border-color: rgba(37,99,235,0.32) !important;
   box-shadow: 0 10px 22px rgba(37,99,235,0.10) !important;
 }
-
 
 /* -----------------------------
    Cards / containers
@@ -214,7 +201,7 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checke
   color: var(--text) !important;
 }
 
-/* Give standard “blocks” a little more air */
+/* Give standard blocks a little more air */
 .stMarkdown, .stCaption{ line-height: 1.45; }
 
 /* -----------------------------
@@ -276,11 +263,10 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checke
 
 /* -----------------------------
    Buttons (global)
-   Fix: improve contrast + make “important” buttons readable.
    IMPORTANT: Do NOT touch .btn / .lp-* because login CSS is injected in app.py.
 ------------------------------ */
 
-/* Primary buttons: strong gradient like colleague screenshots */
+/* Primary buttons */
 div[data-testid="stFormSubmitButton"] > button,
 [data-testid^="baseButton-primary"] > button,
 button[kind="primary"]{
@@ -294,7 +280,6 @@ button[kind="primary"]{
   box-shadow: 0 12px 28px rgba(37,99,235,.20), 0 10px 26px rgba(139,92,246,.14) !important;
   transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
 }
-
 div[data-testid="stFormSubmitButton"] > button:hover,
 [data-testid^="baseButton-primary"] > button:hover,
 button[kind="primary"]:hover{
@@ -302,7 +287,6 @@ button[kind="primary"]:hover{
   transform: translateY(-1px);
   box-shadow: 0 18px 40px rgba(37,99,235,.22), 0 16px 36px rgba(139,92,246,.16) !important;
 }
-
 div[data-testid="stFormSubmitButton"] > button:disabled,
 [data-testid^="baseButton-primary"] > button:disabled{
   opacity: .65 !important;
@@ -311,11 +295,11 @@ div[data-testid="stFormSubmitButton"] > button:disabled,
   transform: none !important;
 }
 
-/* Secondary / outline: make text MUCH more readable than before */
+/* Secondary / outline */
 [data-testid^="baseButton-secondary"] > button,
 button[kind="secondary"]{
   background: rgba(255,255,255,0.92) !important;
-  color: #0B1320 !important;                      /* darker text for readability */
+  color: #0B1320 !important;
   border: 1px solid rgba(15,29,43,0.22) !important;
   border-radius: var(--radius-pill) !important;
   font-weight: 800 !important;
@@ -327,7 +311,7 @@ button[kind="secondary"]:hover{
   border-color: rgba(37,99,235,0.28) !important;
 }
 
-/* Regular st.button (non kind=primary/secondary) — also improve contrast */
+/* Regular st.button */
 .stButton > button{
   background: rgba(255,255,255,0.92) !important;
   color: #0B1320 !important;
@@ -342,7 +326,7 @@ button[kind="secondary"]:hover{
   background: rgba(37,99,235,0.06) !important;
 }
 
-/* Make button labels always visible (sometimes Streamlit applies opacity) */
+/* Make button labels always visible */
 .stButton > button span,
 div[data-testid="stFormSubmitButton"] > button span{
   opacity: 1 !important;
@@ -366,21 +350,15 @@ div[data-testid="stDownloadButton"] a:hover{
 }
 
 /* -----------------------------
-   Step flow row styling (your “first horizontal block”)
+   Step flow row styling
 ------------------------------ */
 [data-testid="stHorizontalBlock"]:first-of-type{
   display: flex;
   align-items: center;
   gap: 14px;
 }
-
-[data-testid="stHorizontalBlock"]:first-of-type > div{
-  flex: 0 0 auto;
-}
-
-[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4){
-  margin-left: auto;
-}
+[data-testid="stHorizontalBlock"]:first-of-type > div{ flex: 0 0 auto; }
+[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4){ margin-left: auto; }
 
 /* Step pills */
 [data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
@@ -399,7 +377,7 @@ div[data-testid="stDownloadButton"] a:hover{
 
 /* -----------------------------
    SIMPLE LOGIN PAGE (simple .login-wrap version)
-   (Does NOT affect the injected Amnis-like login .lp-*)
+   (Does NOT affect injected Amnis-like login .lp-*)
 ------------------------------ */
 .login-wrap{
   width: min(560px, 92vw);
@@ -474,4 +452,3 @@ a.cta:hover{
 .btn, .btn-primary, .btn-secondary{
   /* intentionally left untouched */
 }
-
