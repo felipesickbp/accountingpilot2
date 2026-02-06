@@ -1,7 +1,5 @@
 import os, time, base64, io
 import pandas as pd
-import sqlite3, json, hashlib
-from datetime import datetime
 import streamlit as st
 import requests
 import math, random
@@ -76,80 +74,106 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_topbar():
-    # label you want on the right
-    client_label = st.session_state.get("company_name") or "—"
-
-    # logo base64
-    logo_b64 = ""
-    if LOGO_PATH.exists():
-        logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-
-    st.markdown(
-        f"""
-        <div class="bp-topbar">
-          <div class="bp-topbar-inner">
-            <div class="bp-left">
-              {"<img class='bp-logo' src='data:image/webp;base64," + logo_b64 + "' />" if logo_b64 else ""}
-              <div class="bp-title">BURKHART &amp; PARTNERS</div>
-            </div>
-
-            <div class="solid-right">
-              <div class="client-pill">
-                Logged in for <b>{client_label}</b>
-              </div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-def render_app_header(title="BURKHART & PARTNERS", show_client_pill=True, logo_px=28):
-    # logo html
+def render_solid_header(title="Accounting Copilot", logo_px=36):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f'<img class="app-logo" src="data:image/webp;base64,{b64}" alt="logo" />'
+        logo_html = f"""<img class="solid-logo" src="data:image/webp;base64,{b64}" />"""
 
-    # label
     client_name = (st.session_state.get("company_name") or "").strip()
     client_id   = (st.session_state.get("company_id") or "").strip()
-    if client_name and client_id:
+
+    # nice fallback if API doesn't return name
+    if not client_name and client_id:
+        client_label = f"Client ID {client_id}"
+    elif client_name and client_id:
         client_label = f"{client_name} (ID {client_id})"
     elif client_name:
         client_label = client_name
-    elif client_id:
-        client_label = f"Client ID {client_id}"
     else:
         client_label = "—"
 
-    pill_html = ""
-    if show_client_pill:
-        pill_html = f"""
-        <div class="solid-right">
-          <div class="client-pill">
-            Logged in for <b>{client_label}</b>
-          </div>
-        </div>
-        """
-
+    # ✅ prevent Streamlit from rendering your HTML as a code block
     st.markdown(
-        f"""
-        <div class="app-header">
-          <div class="app-header-inner">
-            <div class="solid-left">
-              {logo_html}
-              <div class="app-title">{title}</div>
-            </div>
-            {pill_html}
-          </div>
-        </div>
-        """,
+        textwrap.dedent(f"""
+<style>
+  .solid-header {{
+    position: sticky;
+    top: 0;
+    z-index: 9999;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
+    padding: 12px 16px;
+    margin: 0 0 1rem 0;
+    border-radius: 14px;
+  }}
+  .solid-header-inner {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }}
+  .solid-left {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }}
+  .solid-logo {{
+    height: {logo_px}px;
+    width: auto;
+    display: block;
+  }}
+  .solid-title {{
+    font-size: 1.15rem;
+    font-weight: 900;
+    margin: 0;
+    line-height: 1.1;
+    color: #0F1D2B;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 52vw;
+  }}
+  .solid-right {{
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }}
+  .client-pill {{
+    font-size: 12px;
+    font-weight: 800;
+    color: rgba(15,29,43,0.86);
+    border: 1px solid rgba(15,29,43,0.14);
+    background: rgba(245,247,255,0.85);
+    padding: 8px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }}
+  .client-pill b {{
+    color: #0F1D2B;
+  }}
+</style>
+
+<div class="solid-header">
+  <div class="solid-header-inner">
+    <div class="solid-left">
+      {logo_html}
+      <div class="solid-title">{title}</div>
+    </div>
+
+    <div class="solid-right">
+      <div class="client-pill">
+        Logged in for <b>{client_label}</b>
+      </div>
+    </div>
+  </div>
+</div>
+        """),
         unsafe_allow_html=True,
     )
-
 
 
 def render_login_page():
@@ -376,161 +400,6 @@ _inject_local_css()
 # =========================
 # SCHEMA & HELPERS
 # =========================
-
-
-DB_PATH = os.getenv("HISTORY_DB_PATH", "history.sqlite3")
-
-def _db():
-    # check_same_thread=False is fine for Streamlit single-process usage
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-def init_history_db():
-    con = _db()
-    cur = con.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS import_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id TEXT,
-            company_name TEXT,
-            created_at TEXT,
-            source_type TEXT,           -- "bank_upload" | "paste" | "empty"
-            source_name TEXT,           -- filename or "paste" etc.
-            rows_total INTEGER,
-            rows_ok INTEGER,
-            rows_error INTEGER,
-            ref_hash TEXT,              -- small fingerprint
-            meta_json TEXT,             -- optional meta
-            excel_blob BLOB             -- the downloadable excel
-        )
-    """)
-    con.commit()
-    con.close()
-
-def make_history_excel(rows_df: pd.DataFrame, results_df: pd.DataFrame) -> bytes:
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        rows_df.to_excel(writer, index=False, sheet_name="rows")
-        results_df.to_excel(writer, index=False, sheet_name="results")
-    return out.getvalue()
-
-def save_import_run(
-    *,
-    rows_df: pd.DataFrame,
-    results_df: pd.DataFrame,
-    source_type: str,
-    source_name: str,
-    meta: dict | None = None,
-):
-    init_history_db()
-
-    company_id = str(st.session_state.get("company_id") or "")
-    company_name = str(st.session_state.get("company_name") or "")
-    created_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-
-    rows_total = int(len(results_df)) if results_df is not None else 0
-    rows_ok = int((results_df.get("status") == "OK").sum()) if results_df is not None and "status" in results_df.columns else 0
-    rows_error = rows_total - rows_ok
-
-    # small fingerprint so you can detect duplicates if you want
-    fp_src = (rows_df.astype(str).head(50).to_csv(index=False)).encode("utf-8", errors="ignore")
-    ref_hash = hashlib.sha256(fp_src).hexdigest()[:16]
-
-    excel_blob = make_history_excel(rows_df, results_df)
-
-    con = _db()
-    cur = con.cursor()
-    cur.execute(
-        """
-        INSERT INTO import_runs (
-            company_id, company_name, created_at,
-            source_type, source_name,
-            rows_total, rows_ok, rows_error,
-            ref_hash, meta_json, excel_blob
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            company_id, company_name, created_at,
-            source_type, source_name,
-            rows_total, rows_ok, rows_error,
-            ref_hash, json.dumps(meta or {}, ensure_ascii=False),
-            sqlite3.Binary(excel_blob),
-        ),
-    )
-    con.commit()
-    con.close()
-
-def list_import_runs(company_id: str | None = None, limit: int = 200) -> pd.DataFrame:
-    init_history_db()
-    con = _db()
-    if company_id:
-        df = pd.read_sql_query(
-            "SELECT id, company_id, company_name, created_at, source_type, source_name, rows_total, rows_ok, rows_error, ref_hash, meta_json FROM import_runs WHERE company_id=? ORDER BY id DESC LIMIT ?",
-            con,
-            params=(company_id, limit),
-        )
-    else:
-        df = pd.read_sql_query(
-            "SELECT id, company_id, company_name, created_at, source_type, source_name, rows_total, rows_ok, rows_error, ref_hash, meta_json FROM import_runs ORDER BY id DESC LIMIT ?",
-            con,
-            params=(limit,),
-        )
-    con.close()
-    return df
-
-def get_run_excel_blob(run_id: int) -> bytes | None:
-    init_history_db()
-    con = _db()
-    cur = con.cursor()
-    cur.execute("SELECT excel_blob FROM import_runs WHERE id=?", (int(run_id),))
-    row = cur.fetchone()
-    con.close()
-    return row[0] if row and row[0] else None
-
-
-
-def render_app_header(show_client_pill=True):
-    # base64 logo
-    logo_html = ""
-    if LOGO_PATH.exists():
-        b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f'<img class="bp-logo" src="data:image/webp;base64,{b64}" alt="Burkhart & Partners" />'
-
-    client_name = (st.session_state.get("company_name") or "").strip()
-    client_id   = (st.session_state.get("company_id") or "").strip()
-
-    if client_name and client_id:
-        client_label = f"{client_name} (ID {client_id})"
-    elif client_name:
-        client_label = client_name
-    elif client_id:
-        client_label = f"Client ID {client_id}"
-    else:
-        client_label = "—"
-
-    st.markdown(
-        f"""
-        <div class="bp-topbar">
-          <div class="bp-topbar-inner">
-            <div class="bp-left">
-              {logo_html}
-            </div>
-
-            {""
-              if not show_client_pill else
-              f'''
-              <div class="solid-right">
-                <div class="client-pill">
-                  Logged in for <b>{client_label}</b>
-                </div>
-              </div>
-              '''
-            }
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
 
 def _ensure_currency_code_map():
     if st.session_state.get("currency_code_to_id"):
@@ -948,22 +817,12 @@ STEP_LABELS = {
     1: "1) Kontenplan",
     2: "2) Bankdatei",
     3: "3) Kontrolle & Import",
-    4: "4) History",
 }
-
 
 def sidebar_nav():
     st.sidebar.markdown("### Navigation")
-
-    # ✅ include ALL steps from STEP_LABELS (so Step 4 appears)
-    step_names = [STEP_LABELS[k] for k in sorted(STEP_LABELS.keys())]
-
-    current_name = STEP_LABELS.get(st.session_state.step, step_names[0])
-
-    # if current step is invalid, reset to first
-    if current_name not in step_names:
-        st.session_state.step = sorted(STEP_LABELS.keys())[0]
-        current_name = STEP_LABELS[st.session_state.step]
+    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
+    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
 
     chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
 
@@ -974,11 +833,8 @@ def sidebar_nav():
 
     st.sidebar.markdown("---")
     if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
-        for k in [
-            "acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-            "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid",
-            "tax_code_to_id","currency_code_to_id"
-        ]:
+        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
+                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
             if k in st.session_state:
                 del st.session_state[k]
         st.session_state.step = 1
@@ -1214,10 +1070,8 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 
 ensure_company_profile_loaded()
 
-render_app_header(show_client_pill=True)  # or False
-render_topbar()
+render_solid_header()
 sidebar_nav()
-
 
 # =========================
 # STEP 1 — KONTENPLAN
@@ -1984,65 +1838,4 @@ elif st.session_state.step == 3:
             else:
                 st.success(f"Fertig. {sum(1 for r in results if r.get('status')=='OK')} Buchung(en) erfolgreich gepostet.")
                 st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
-
-                # =========================
-                # HISTORY: persist this run
-                # =========================
-                try:
-                    results_df = pd.DataFrame(results)
-
-                    # what user tried to post (snapshot of the grid)
-                    rows_export = st.session_state.bulk_df[EDIT_COLS].copy()
-
-                    # choose a simple "source"
-                    source_type = "paste" if (st.session_state.get("paste_tsv") or "").strip() else "grid"
-                    source_name = "paste" if source_type == "paste" else "grid"
-
-                    save_import_run(
-                        rows_df=rows_export,
-                        results_df=results_df,
-                        source_type=source_type,
-                        source_name=source_name,
-                        meta={
-                            "batch_size": batch_size,
-                            "sleep_between_batches": sleep_between_batches,
-                        },
-                    )
-                except Exception as e:
-                    st.warning(f"History konnte nicht gespeichert werden: {e}")
-
-
-# =========================
-# STEP 4 — HISTORY
-# =========================
-elif st.session_state.step == 4:
-    st.subheader("4) History")
-
-    company_id = str(st.session_state.get("company_id") or "")
-    df_runs = list_import_runs(company_id=company_id, limit=300)
-
-    if df_runs.empty:
-        st.info("Noch keine Imports gespeichert.")
-        st.stop()
-
-    # show table
-    show_df = df_runs.drop(columns=["meta_json"], errors="ignore").copy()
-    st.dataframe(show_df, use_container_width=True, hide_index=True)
-
-    # select run id
-    run_ids = show_df["id"].tolist()
-    selected_id = st.selectbox("Run auswählen", options=run_ids, index=0)
-
-    blob = get_run_excel_blob(int(selected_id))
-    if blob:
-        st.download_button(
-            "⬇️ Excel herunterladen",
-            data=blob,
-            file_name=f"import_history_run_{selected_id}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    else:
-        st.warning("Keine Excel-Datei für diesen Run gefunden.")
-
 
