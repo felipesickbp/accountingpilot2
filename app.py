@@ -736,23 +736,7 @@ def sidebar_nav():
     # =========================
     logo_path = Path("assets/logo.webp")
     if logo_path.exists():
-        st.sidebar.image(str(logo_path), width=160)
-
-    # --- Selected bexio company (mandant) ---
-    company = (st.session_state.get("company_name") or "").strip()
-    cid = (st.session_state.get("company_id") or "").strip()
-
-    if company:
-        # cleaner + no "Mandant:" duplication elsewhere if you remove the main caption
-        st.sidebar.markdown(
-            f"<div style='margin-top:4px; margin-bottom:6px; opacity:0.85; font-size:13px;'>"
-            f"🏢 <b>{company}</b>"
-            f"{f'<br/><span style=\"opacity:0.7;\">ID: {cid}</span>' if cid else ''}"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-    else:
-        st.sidebar.caption("🏢 Mandant: —")
+        st.sidebar.image(str(logo_path), width=200)
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Navigation")
