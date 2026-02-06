@@ -78,12 +78,11 @@ def render_solid_header(title="Accounting Copilot", logo_px=36):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f"""<img class="solid-logo" src="data:image/webp;base64,{b64}" />"""
+        logo_html = f'<img class="solid-logo" style="--logo-px:{logo_px}px" src="data:image/webp;base64,{b64}" />'
 
     client_name = (st.session_state.get("company_name") or "").strip()
     client_id   = (st.session_state.get("company_id") or "").strip()
 
-    # nice fallback if API doesn't return name
     if not client_name and client_id:
         client_label = f"Client ID {client_id}"
     elif client_name and client_id:
@@ -93,71 +92,9 @@ def render_solid_header(title="Accounting Copilot", logo_px=36):
     else:
         client_label = "—"
 
-    # ✅ prevent Streamlit from rendering your HTML as a code block
+    # IMPORTANT: no indentation before <div> to avoid markdown code-block rendering
     st.markdown(
-        textwrap.dedent(f"""
-<style>
-  .solid-header {{
-    position: sticky;
-    top: 0;
-    z-index: 9999;
-    background: rgba(255,255,255,0.92);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(0,0,0,0.08);
-    box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
-    padding: 12px 16px;
-    margin: 0 0 1rem 0;
-    border-radius: 14px;
-  }}
-  .solid-header-inner {{
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }}
-  .solid-left {{
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-  }}
-  .solid-logo {{
-    height: {logo_px}px;
-    width: auto;
-    display: block;
-  }}
-  .solid-title {{
-    font-size: 1.15rem;
-    font-weight: 900;
-    margin: 0;
-    line-height: 1.1;
-    color: #0F1D2B;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 52vw;
-  }}
-  .solid-right {{
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }}
-  .client-pill {{
-    font-size: 12px;
-    font-weight: 800;
-    color: rgba(15,29,43,0.86);
-    border: 1px solid rgba(15,29,43,0.14);
-    background: rgba(245,247,255,0.85);
-    padding: 8px 10px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }}
-  .client-pill b {{
-    color: #0F1D2B;
-  }}
-</style>
-
-<div class="solid-header">
+f"""<div class="solid-header">
   <div class="solid-header-inner">
     <div class="solid-left">
       {logo_html}
@@ -166,12 +103,11 @@ def render_solid_header(title="Accounting Copilot", logo_px=36):
 
     <div class="solid-right">
       <div class="client-pill">
-        Logged in for <b>{client_label}</b>
+        Logged in as <b>{client_label}</b>
       </div>
     </div>
   </div>
-</div>
-        """),
+</div>""",
         unsafe_allow_html=True,
     )
 
