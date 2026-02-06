@@ -349,14 +349,10 @@ button[kind="secondary"]:hover{
   background: rgba(37,99,235,0.06) !important;
 }
 
-/* Make button labels always visible (Streamlit nests text in different tags) */
-.stButton > button *,
-div[data-testid="stFormSubmitButton"] > button *,
-div[data-testid="stDownloadButton"] > button *,
-button[kind="primary"] *{
-  color: #FFFFFF !important;   /* ✅ ensure contrast */
-  opacity: 1 !important;       /* ✅ no faint labels */
-  fill: #FFFFFF !important;    /* ✅ icons */
+/* Make button labels always visible */
+.stButton > button span,
+div[data-testid="stFormSubmitButton"] > button span{
+  opacity: 1 !important;
 }
 
 
