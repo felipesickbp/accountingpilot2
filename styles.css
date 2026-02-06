@@ -570,4 +570,111 @@ a.cta:hover{
   .client-pill{ padding: 7px 9px; }
 }
 
+/* =========================================================
+   TOPBAR OVERRIDE (clean, full-width)
+   Paste at END of styles.css
+   ========================================================= */
+
+/* Hide Streamlit toolbar (optional). Remove if you want Share/Edit icons. */
+div[data-testid="stToolbar"] { display: none !important; }
+
+/* Ensure the page uses the same canvas background behind the header */
+div[data-testid="stAppViewContainer"]{
+  background:
+    radial-gradient(1200px 520px at 18% 0%, rgba(139,92,246,0.10), transparent 58%),
+    radial-gradient(1200px 520px at 92% 0%, rgba(37,99,235,0.10), transparent 58%),
+    linear-gradient(180deg, var(--bg-soft), var(--bg-soft-2));
+}
+
+/* --- IMPORTANT: neutralize old "card header" styles --- */
+.app-header,
+.solid-header{
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* =========================================================
+   NEW CLEAN TOPBAR (recommended markup: .bp-topbar / .bp-topbar-inner)
+   ========================================================= */
+
+.bp-topbar{
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+
+  /* Full width bar */
+  width: 100%;
+  background: rgba(246,248,252,0.86);      /* slightly tinted to match canvas */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  border-bottom: 1px solid rgba(15,23,42,0.08);
+}
+
+/* Inner aligns to your content width */
+.bp-topbar-inner{
+  max-width: 1200px;       /* match your .block-container max-width */
+  margin: 0 auto;
+  padding: 10px 18px;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  min-height: 52px;
+}
+
+/* Left group */
+.bp-left{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bp-logo{
+  height: 26px;
+  width: auto;
+  display: block;
+}
+
+/* Right group */
+.solid-right{
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Client pill (subtle, not shouting) */
+.client-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15,29,43,0.78);
+
+  border: 1px solid rgba(15,29,43,0.12);
+  background: rgba(255,255,255,0.70);
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(15,29,43,0.05);
+}
+
+.client-pill b{
+  color: rgba(15,29,43,0.92);
+}
+
+/* Mobile: reduce pill padding a touch */
+@media (max-width: 900px){
+  .bp-topbar-inner{ padding: 10px 14px; }
+  .client-pill{ padding: 6px 9px; }
+}
 
