@@ -776,8 +776,6 @@ def sidebar_nav():
     # MANDANT (switch)
     # =========================
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🏢 Mandant")
-    st.sidebar.write(st.session_state.get("company_name") or "—")
 
     # One clear switch button (reliable)
     if st.sidebar.button("🔄 Mandant wechseln", use_container_width=True):
@@ -1250,15 +1248,7 @@ with c_right:
         unsafe_allow_html=True,
     )
 
-    # right-aligned button under the badge
-    b1, b2 = st.columns([1, 1])
-    with b2:
-        if st.button("🔄 Mandant wechseln", key="top_mandate_switch", use_container_width=True):
-            for k in ["oauth", "company_profile", "company_name", "company_id", "selected_import_id"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-            st.session_state.step = 1
-            st.rerun()
+    
 
 
 if st.session_state.step == 1:
