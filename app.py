@@ -74,27 +74,38 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def render_solid_header(title="Accounting Pilot", logo_px=36):
+def render_solid_header(title="Accounting Copilot", logo_px=36):
     logo_html = ""
     if LOGO_PATH.exists():
         b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
-        logo_html = f"""
-        <img class="solid-logo" src="data:image/webp;base64,{b64}" />
-        """
+        logo_html = f"""<img class="solid-logo" src="data:image/webp;base64,{b64}" />"""
+
+    client_name = (st.session_state.get("company_name") or "").strip()
+    client_id = (st.session_state.get("company_id") or "").strip()
+
+    # nice fallback if API doesn't return name
+    if not client_name and client_id:
+        client_label = f"Client ID {client_id}"
+    elif client_name and client_id:
+        client_label = f"{client_name} (ID {client_id})"
+    elif client_name:
+        client_label = client_name
+    else:
+        client_label = "—"
 
     st.markdown(
         f"""
         <style>
-          /* only affects the header */
           .solid-header {{
             position: sticky;
             top: 0;
             z-index: 9999;
-            background: white;
-            border-bottom: 1px solid rgba(0,0,0,0.08);
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0,0,0,0.08);
             box-shadow: 0 6px 18px rgba(15, 29, 43, 0.06);
             padding: 12px 16px;
-            margin: 0 0 1rem 0;       /* ✅ no negative margin => no clipping */
+            margin: 0 0 1rem 0;
             border-radius: 14px;
           }}
           .solid-header-inner {{
@@ -102,23 +113,61 @@ def render_solid_header(title="Accounting Pilot", logo_px=36):
             align-items: center;
             gap: 12px;
           }}
+          .solid-left {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+          }}
           .solid-logo {{
             height: {logo_px}px;
             width: auto;
             display: block;
           }}
           .solid-title {{
-            font-size: 1.35rem;
-            font-weight: 850;
+            font-size: 1.15rem;
+            font-weight: 900;
             margin: 0;
             line-height: 1.1;
+            color: #0F1D2B;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 52vw;
+          }}
+          .solid-right {{
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }}
+          .client-pill {{
+            font-size: 12px;
+            font-weight: 800;
+            color: rgba(15,29,43,0.86);
+            border: 1px solid rgba(15,29,43,0.14);
+            background: rgba(245,247,255,0.85);
+            padding: 8px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+          }}
+          .client-pill b {{
             color: #0F1D2B;
           }}
         </style>
 
         <div class="solid-header">
           <div class="solid-header-inner">
-            {logo_html}
+            <div class="solid-left">
+              {logo_html}
+              <div class="solid-title">{title}</div>
+            </div>
+
+            <div class="solid-right">
+              <div class="client-pill">
+                Logged in for <b>{client_label}</b>
+              </div>
+            </div>
           </div>
         </div>
         """,
@@ -748,6 +797,13 @@ if "bank_map" not in st.session_state:
     st.session_state.bank_map = {"datum": None, "betrag": None, "beschreibung": None}
 if "bulk_df" not in st.session_state:
     st.session_state.bulk_df = None
+if "company_profile" not in st.session_state:
+    st.session_state.company_profile = None
+if "company_name" not in st.session_state:
+    st.session_state.company_name = ""
+if "company_id" not in st.session_state:
+    st.session_state.company_id = ""
+
 
 DEFAULT_CURRENCY_CODE = "CHF"
 DEFAULT_CURRENCY_ID = 1
@@ -939,6 +995,65 @@ def fetch_all_accounts_v2(limit=2000):
         offset += limit
     return rows
 
+
+def fetch_company_profile():
+    """
+    Returns dict with company profile information from bexio.
+    Tries v2 first (most reliable), then v3 fallback.
+    """
+    # v2 (commonly available)
+    try:
+        r = requests.get(f"{API_V2}/company_profile", headers=_auth_v2(), timeout=20)
+        if r.status_code == 401:
+            refresh_access_token()
+            r = requests.get(f"{API_V2}/company_profile", headers=_auth_v2(), timeout=20)
+        if r.status_code < 400:
+            return r.json()
+    except Exception:
+        pass
+
+    # v3 fallback (some tenants expose it)
+    try:
+        r = requests.get(f"{API_V3}/company_profile", headers=_auth(), timeout=20)
+        if r.status_code == 401:
+            refresh_access_token()
+            r = requests.get(f"{API_V3}/company_profile", headers=_auth(), timeout=20)
+        if r.status_code < 400:
+            return r.json()
+    except Exception:
+        pass
+
+    return None
+
+
+def ensure_company_profile_loaded(force: bool = False):
+    """
+    Loads company profile once per session (or force reload).
+    """
+    if (not force) and st.session_state.get("company_profile"):
+        return
+
+    prof = fetch_company_profile()
+    st.session_state.company_profile = prof or {}
+
+    # best-effort extraction of name/id across variants
+    name = ""
+    cid = ""
+
+    if isinstance(prof, dict):
+        for k in ("name", "company_name", "company", "profile_name"):
+            if prof.get(k):
+                name = str(prof.get(k)).strip()
+                break
+        for k in ("id", "company_id", "uuid"):
+            if prof.get(k):
+                cid = str(prof.get(k)).strip()
+                break
+
+    st.session_state.company_name = name
+    st.session_state.company_id = cid
+
+
 # =========================
 # LAYOUT: HEADER + NAV
 # =========================
@@ -951,6 +1066,8 @@ if need_login():
 if time.time() > st.session_state.oauth.get("expires_at", 0):
     with st.spinner("Session wird erneuert …"):
         refresh_access_token()
+
+ensure_company_profile_loaded()
 
 render_solid_header()
 sidebar_nav()
