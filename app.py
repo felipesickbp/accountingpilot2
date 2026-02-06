@@ -968,7 +968,6 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 
 ensure_company_profile_loaded()
 
-render_solid_header()
 sidebar_nav()
 
 # =========================
