@@ -1014,6 +1014,7 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
         refresh_access_token()
 
 ensure_company_profile_loaded()
+render_app_header(title="BURKHART & PARTNERS", show_client_pill=False)
 
 sidebar_nav()
 
