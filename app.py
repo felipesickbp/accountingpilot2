@@ -989,7 +989,9 @@ def ensure_company_profile_loaded(force: bool = False):
                 cid = str(v).strip()
                 break
 
+    if not (st.session_state.get("company_name") or "").strip():
     st.session_state.company_name = name
+    if not (st.session_state.get("company_id") or "").strip():
     st.session_state.company_id = cid
 
 
@@ -1007,6 +1009,11 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
         refresh_access_token()
 
 ensure_company_profile_loaded()
+with st.expander("Debug: company_profile", expanded=False):
+    st.write("company_name:", st.session_state.get("company_name"))
+    st.write("company_id:", st.session_state.get("company_id"))
+    st.write("company_profile:", st.session_state.get("company_profile"))
+
 sidebar_nav()
 
 # =========================
