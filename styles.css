@@ -128,33 +128,59 @@ section[data-testid="stSidebar"] > div{
   padding-top: 12px !important;
 }
 
-/* Radio group (sidebar steps) — make them look like pill options */
+/* -----------------------------
+   Sidebar Navigation (pure menu, no dots)
+------------------------------ */
+
+/* Make the radiogroup NOT look like a big card */
 section[data-testid="stSidebar"] [role="radiogroup"]{
-  background: rgba(255,255,255,0.55);
-  border: 1px solid rgba(15,29,43,0.08);
-  border-radius: 14px;
-  padding: 10px 10px;
-  box-shadow: var(--shadow-mini);
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
 }
 
-/* Each radio option */
+/* Hide the radio circles completely */
+section[data-testid="stSidebar"] [role="radiogroup"] input[type="radio"]{
+  display: none !important;
+}
+
+/* Each option becomes a nav row */
 section[data-testid="stSidebar"] [role="radiogroup"] label{
+  display: flex !important;
+  align-items: center !important;
+
   border-radius: 12px !important;
-  padding: 8px 10px !important;
-  margin: 2px 0 !important;
-  transition: background .12s ease, transform .06s ease;
+  padding: 10px 12px !important;
+  margin: 4px 0 !important;
+
+  background: rgba(255,255,255,0.35) !important;
+  border: 1px solid rgba(15,29,43,0.08) !important;
+
+  transition: background .12s ease, border-color .12s ease, transform .06s ease;
+}
+
+/* Text style inside nav row */
+section[data-testid="stSidebar"] [role="radiogroup"] label p{
+  margin: 0 !important;
+  font-weight: 800 !important;
+  color: rgba(15,29,43,0.86) !important;
 }
 
 /* Hover */
 section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
   background: rgba(37,99,235,0.06) !important;
+  border-color: rgba(37,99,235,0.18) !important;
 }
 
-/* Selected (Streamlit uses aria-checked on input; we can style the label when it contains a checked input) */
+/* Selected = active menu item */
 section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checked="true"]){
-  background: linear-gradient(90deg, rgba(139,92,246,0.16), rgba(37,99,235,0.12)) !important;
-  border: 1px solid rgba(37,99,235,0.20);
+  background: linear-gradient(90deg, rgba(139,92,246,0.14), rgba(37,99,235,0.10)) !important;
+  border-color: rgba(37,99,235,0.32) !important;
+  box-shadow: 0 10px 22px rgba(37,99,235,0.10) !important;
 }
+
 
 /* -----------------------------
    Cards / containers
