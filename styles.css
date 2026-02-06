@@ -106,7 +106,7 @@ a{ color: var(--text) !important; text-decoration: none; }
 a:hover{ color: #1F2E44 !important; text-decoration: underline; }
 
 /* -----------------------------
-   Sidebar (Navigation polish)
+   Sidebar (Navigation + pure menu, no dots)
 ------------------------------ */
 section[data-testid="stSidebar"]{
   background:
@@ -129,7 +129,7 @@ section[data-testid="stSidebar"] > div{
 }
 
 /* -----------------------------
-   Sidebar Navigation (pure menu, no dots)
+   Sidebar Navigation (pure menu, hide radio indicators reliably)
 ------------------------------ */
 
 /* Make the radiogroup NOT look like a big card */
@@ -141,12 +141,30 @@ section[data-testid="stSidebar"] [role="radiogroup"]{
   box-shadow: none !important;
 }
 
-/* Hide the radio circles completely */
+/* Hide ALL radio indicators (Streamlit/BaseWeb variants) */
 section[data-testid="stSidebar"] [role="radiogroup"] input[type="radio"]{
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+}
+
+/* BaseWeb radio mark containers (common Streamlit DOM) */
+section[data-testid="stSidebar"] [role="radiogroup"] [data-baseweb="radio"]{
+  display: none !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] span[role="radio"],
+section[data-testid="stSidebar"] [role="radiogroup"] div[role="radio"]{
   display: none !important;
 }
 
-/* Each option becomes a nav row */
+/* Any SVG that might be used as the dot */
+section[data-testid="stSidebar"] [role="radiogroup"] label svg{
+  display: none !important;
+}
+
+/* Each option becomes a clean nav row */
 section[data-testid="stSidebar"] [role="radiogroup"] label{
   display: flex !important;
   align-items: center !important;
