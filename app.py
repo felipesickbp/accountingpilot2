@@ -74,50 +74,111 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
-def sidebar_client_info():
-    """Small, robust logged-in indicator (no HTML)."""
-    name = (st.session_state.get("company_name") or "—").strip()
-    cid  = (st.session_state.get("company_id") or "").strip()
+def render_topbar():
+    # label you want on the right
+    client_label = st.session_state.get("company_name") or "—"
 
-    st.sidebar.markdown("---")
-    if cid:
-        st.sidebar.caption(f"Logged in for **{name}**  ·  ID **{cid}**")
-    else:
-        st.sidebar.caption(f"Logged in for **{name}**")
-
-
-
-
-def render_login_page():
-    """ONLY shown when not logged in. Uses HTML safely and hides sidebar."""
-    login_url = make_login_url()
-
+    # logo base64
     logo_b64 = ""
     if LOGO_PATH.exists():
         logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
 
     st.markdown(
+        f"""
+        <div class="bp-topbar">
+          <div class="bp-topbar-inner">
+            <div class="bp-left">
+              {"<img class='bp-logo' src='data:image/webp;base64," + logo_b64 + "' />" if logo_b64 else ""}
+              <div class="bp-title">BURKHART &amp; PARTNERS</div>
+            </div>
+
+            <div class="solid-right">
+              <div class="client-pill">
+                Logged in for <b>{client_label}</b>
+              </div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_app_header(title="BURKHART & PARTNERS", show_client_pill=True, logo_px=28):
+    # logo html
+    logo_html = ""
+    if LOGO_PATH.exists():
+        b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        logo_html = f'<img class="app-logo" src="data:image/webp;base64,{b64}" alt="logo" />'
+
+    # label
+    client_name = (st.session_state.get("company_name") or "").strip()
+    client_id   = (st.session_state.get("company_id") or "").strip()
+    if client_name and client_id:
+        client_label = f"{client_name} (ID {client_id})"
+    elif client_name:
+        client_label = client_name
+    elif client_id:
+        client_label = f"Client ID {client_id}"
+    else:
+        client_label = "—"
+
+    pill_html = ""
+    if show_client_pill:
+        pill_html = f"""
+        <div class="solid-right">
+          <div class="client-pill">
+            Logged in for <b>{client_label}</b>
+          </div>
+        </div>
+        """
+
+    st.markdown(
+        f"""
+        <div class="app-header">
+          <div class="app-header-inner">
+            <div class="solid-left">
+              {logo_html}
+              <div class="app-title">{title}</div>
+            </div>
+            {pill_html}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
+def render_login_page():
+    login_url = make_login_url()
+
+    # --- logo as base64 (optional; works offline) ---
+    logo_b64 = ""
+    if LOGO_PATH.exists():
+        logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+
+    # --- Amnis-like CSS: soft bg, centered card, clean typography, two CTAs ---
+    st.markdown(
         """
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+          /* Full app background */
+          div[data-testid="stAppViewContainer"] {
+            background: #f6f8fc;
+          }
+
           /* Hide Streamlit chrome on login */
-          header { display: none !important; }
+          header { display: none; }
           #MainMenu { visibility: hidden; }
           footer { visibility: hidden; }
 
-          /* Hide sidebar ONLY on login */
-          section[data-testid="stSidebar"] { display: none !important; }
-          div[data-testid="collapsedControl"] { display: none !important; }
+          /* Hide sidebar ONLY on login page */
+          section[data-testid="stSidebar"] { display: none; }
+          div[data-testid="collapsedControl"] { display: none; }
 
-          /* Background */
-          div[data-testid="stAppViewContainer"] {
-            background:
-              radial-gradient(1200px 520px at 18% 0%, rgba(139,92,246,0.10), transparent 58%),
-              radial-gradient(1200px 520px at 92% 0%, rgba(37,99,235,0.10), transparent 58%),
-              linear-gradient(180deg, #F7F6FF, #F4F8FF) !important;
-          }
-
+          /* Reduce top padding so it feels like a real web app */
           .block-container {
             padding-top: 28px !important;
             padding-bottom: 40px !important;
@@ -132,10 +193,12 @@ def render_login_page():
             display: flex;
             align-items: center;
             gap: 10px;
-            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
           }
-          .lp-brand img { height: 26px; width: auto; display: block; }
-          .lp-brand .t { font-weight: 900; letter-spacing: -0.02em; color: #0F172A; }
+          .lp-brand img {
+            height: 26px;
+            width: auto;
+            display: block;
+          }
 
           .lp-wrap {
             min-height: calc(100vh - 80px);
@@ -156,13 +219,19 @@ def render_login_page():
           }
 
           .lp-hero {
-            width: 56px; height: 56px;
+            width: 56px;
+            height: 56px;
             border-radius: 14px;
             background: rgba(37, 99, 235, 0.08);
-            display: flex; align-items: center; justify-content: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             margin-bottom: 14px;
           }
-          .lp-hero span { font-size: 26px; line-height: 1; }
+          .lp-hero span {
+            font-size: 26px;
+            line-height: 1;
+          }
 
           .lp-title {
             font-size: 30px;
@@ -178,11 +247,27 @@ def render_login_page():
             color: rgba(15, 23, 42, 0.72);
           }
 
+          .lp-field-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(15, 23, 42, 0.70);
+            margin: 12px 0 6px 0;
+          }
+          .lp-field {
+            width: 100%;
+            border: 1px solid rgba(15, 23, 42, 0.12);
+            border-radius: 10px;
+            padding: 12px 12px;
+            background: #fff;
+            color: rgba(15, 23, 42, 0.55);
+            font-size: 14px;
+          }
+
           .lp-actions {
             display: grid;
-            grid-template-columns: 1fr;
-            gap: 10px;
-            margin-top: 14px;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 16px;
           }
 
           .btn {
@@ -190,20 +275,37 @@ def render_login_page():
             align-items: center;
             justify-content: center;
             text-decoration: none !important;
-            border-radius: 12px;
+            border-radius: 10px;
             padding: 12px 14px;
-            font-weight: 800;
+            font-weight: 700;
             font-size: 13px;
             border: 1px solid transparent;
             cursor: pointer;
             user-select: none;
           }
           .btn-primary {
-            background: linear-gradient(90deg, #8B5CF6, #2563EB);
+            background: #1f5cff;
             color: #fff !important;
-            box-shadow: 0 10px 26px rgba(37, 99, 235, 0.22);
+            box-shadow: 0 10px 26px rgba(31, 92, 255, 0.22);
           }
           .btn-primary:hover { filter: brightness(0.98); }
+
+          .btn-secondary {
+            background: #fff;
+            border-color: rgba(31, 92, 255, 0.55);
+            color: #1f5cff !important;
+          }
+          .btn-secondary:hover { background: rgba(31, 92, 255, 0.05); }
+
+          .lp-links {
+            margin-top: 14px;
+            display: grid;
+            gap: 6px;
+            font-size: 12px;
+            color: rgba(15, 23, 42, 0.62);
+          }
+          .lp-links a { color: #1f5cff; text-decoration: none; }
+          .lp-links a:hover { text-decoration: underline; }
 
           .lp-note {
             margin-top: 14px;
@@ -216,26 +318,36 @@ def render_login_page():
     )
 
     brand_html = f"""
-      <div class="lp-brand">
-        {f'<img src="data:image/webp;base64,{logo_b64}" alt="logo" />' if logo_b64 else ''}
-        <div class="t">BURKHART &amp; PARTNERS</div>
-      </div>
+    <div class="lp-brand">
+      {f'<img src="data:image/webp;base64,{logo_b64}" alt="logo" />' if logo_b64 else ''}
+    </div>
     """
 
+    # You can swap the emoji for an inline SVG if you want
     st.markdown(
-        brand_html + f"""
+        brand_html
+        + f"""
         <div class="lp-wrap">
           <div class="lp-card">
             <div class="lp-hero"><span>🔐</span></div>
             <div class="lp-title">Einloggen</div>
-            <div class="lp-sub">
-              Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
-            </div>
+            <div class="lp-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
+
+            <!-- Optional: fake fields for the Amnis look (purely visual) -->
+            <div class="lp-field-label">Geschäftliche E-Mail</div>
+            <div class="lp-field">Wie lautet Ihre geschäftliche E-Mail-Adresse?</div>
+
+            <div class="lp-field-label">Passwort</div>
+            <div class="lp-field">Passwort</div>
 
             <div class="lp-actions">
-              <a class="btn btn-primary" href="{login_url}" target="_self" rel="noopener noreferrer">
-                Mit bexio anmelden
-              </a>
+              <a class="btn btn-primary" href="{login_url}" target="_self" rel="noopener noreferrer">ANMELDUNG ↗</a>
+              <a class="btn btn-secondary" href="{login_url}" target="_self" rel="noopener noreferrer">Anmelden / Registrieren mit bexio</a>
+            </div>
+
+            <div class="lp-links">
+              <div>Sie haben noch kein Konto? <a href="{login_url}" target="_self" rel="noopener noreferrer">Konto erstellen</a></div>
+              <div>Button reagiert nicht? <a href="{login_url}" target="_self" rel="noopener noreferrer">Login-Link öffnen</a></div>
             </div>
 
             <div class="lp-note">
@@ -246,6 +358,7 @@ def render_login_page():
         """,
         unsafe_allow_html=True,
     )
+
 # =========================
 # THEME CSS (optional)
 # =========================
@@ -976,9 +1089,9 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 
 ensure_company_profile_loaded()
 
-# NO HEADER. NONE.
+render_app_header(show_client_pill=True)  # or False
+render_topbar()
 sidebar_nav()
-sidebar_client_info()
 
 
 # =========================
