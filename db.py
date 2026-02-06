@@ -52,7 +52,6 @@ def _safe_get_database_url() -> str:
     # 1) Streamlit secrets (optional)
     try:
         import streamlit as st
-        # st.secrets behaves like dict; use .get to avoid KeyError
         url = st.secrets.get("DATABASE_URL")
         if not url:
             conn = st.secrets.get("connections", {}) or {}
@@ -84,11 +83,11 @@ def get_engine(db_url: str | None = None):
 
 def init_db(engine):
     """
-    Supports both:
+    Supports:
     - Postgres schema (payload_json NOT NULL, jsonb, bytea)
     - SQLite schema (TEXT/BLOB)
 
-    If Postgres table already exists, this does NOT break it.
+    If Postgres table already exists, this will not break it.
     """
     dialect = engine.dialect.name.lower()
 
@@ -164,6 +163,9 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
     created_at = datetime.now(timezone.utc).isoformat()
 
     if "postgres" in dialect:
+        # KEY FIX:
+        # - no ::uuid or ::timestamptz casts on parameters
+        # - use plain :id / :created_at; Postgres will implicitly cast from strings
         with engine.begin() as conn:
             conn.execute(
                 text("""
@@ -172,7 +174,7 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
                         payload_json, results_json, csv_bytes
                     )
                     VALUES (
-                        :id::uuid, :created_at::timestamptz, :tenant_id, :tenant_name, :row_count,
+                        :id, :created_at, :tenant_id, :tenant_name, :row_count,
                         CAST(:payload_json AS jsonb),
                         CAST(:results_json AS jsonb),
                         :csv_bytes
@@ -185,7 +187,7 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
                     "tenant_name": str(tenant_name or ""),
                     "row_count": int(row_count),
                     "payload_json": payload_json,
-                    # if results_json is None, cast('[]') is safer than NULL for some setups
+                    # avoid NULL issues / keep query stable
                     "results_json": results_json if results_json is not None else "[]",
                     "csv_bytes": csv_bytes,
                 },
@@ -259,6 +261,5 @@ def delete_import(engine, tenant_id: str, import_id: str) -> int:
             {"id": str(import_id), "tenant_id": str(tenant_id)},
         )
         return int(res.rowcount or 0)
-
 
 
