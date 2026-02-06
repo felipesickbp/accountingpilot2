@@ -289,10 +289,10 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checke
    IMPORTANT: Do NOT touch .btn / .lp-* because login CSS is injected in app.py.
 ------------------------------ */
 
-/* Primary buttons (navy + readable text/icons) */
 div[data-testid="stFormSubmitButton"] > button,
 [data-testid^="baseButton-primary"] > button,
-button[kind="primary"]{
+button[kind="primary"],
+button[data-testid="baseButton-primary"]{
   background: #0B1F3A !important;
   color: #FFFFFF !important;
   border: 1px solid rgba(11,31,58,0.55) !important;
