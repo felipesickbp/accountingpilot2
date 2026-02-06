@@ -74,6 +74,53 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
+
+def render_app_header(title="BURKHART & PARTNERS", show_client_pill=True, logo_px=28):
+    # logo html
+    logo_html = ""
+    if LOGO_PATH.exists():
+        b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        logo_html = f'<img class="app-logo" src="data:image/webp;base64,{b64}" alt="logo" />'
+
+    # label
+    client_name = (st.session_state.get("company_name") or "").strip()
+    client_id   = (st.session_state.get("company_id") or "").strip()
+    if client_name and client_id:
+        client_label = f"{client_name} (ID {client_id})"
+    elif client_name:
+        client_label = client_name
+    elif client_id:
+        client_label = f"Client ID {client_id}"
+    else:
+        client_label = "—"
+
+    pill_html = ""
+    if show_client_pill:
+        pill_html = f"""
+        <div class="solid-right">
+          <div class="client-pill">
+            Logged in for <b>{client_label}</b>
+          </div>
+        </div>
+        """
+
+    st.markdown(
+        f"""
+        <div class="app-header">
+          <div class="app-header-inner">
+            <div class="solid-left">
+              {logo_html}
+              <div class="app-title">{title}</div>
+            </div>
+            {pill_html}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
 def render_login_page():
     login_url = make_login_url()
 
