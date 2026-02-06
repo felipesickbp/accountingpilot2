@@ -805,31 +805,58 @@ def sidebar_nav():
         )
 
         with st.sidebar.expander("Letzte Imports anzeigen", expanded=True):
+            # CSS: tighten spacing + style selected via data-testid + key selector
+            st.markdown(
+                """
+                <style>
+                  /* remove the extra vertical whitespace Streamlit adds around markdown in the expander */
+                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stMarkdown { margin: 0 !important; }
+                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .element-container { margin: 0 !important; }
+                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton { margin: 0 !important; }
+        
+                  /* base "card button" style */
+                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button{
+                    width: 100% !important;
+                    text-align: left !important;
+                    white-space: normal !important;
+                    line-height: 1.25 !important;
+                    border-radius: 12px !important;
+                    padding: 10px 12px !important;
+                    margin: 6px 0 !important;             /* keep small consistent gap */
+                    border: 1px solid rgba(49,51,63,0.14) !important;
+                    background: rgba(255,255,255,0.55) !important;
+                    box-shadow: 0 6px 16px rgba(15,29,43,0.05) !important;
+                  }
+        
+                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button:hover{
+                    border-color: rgba(31,92,255,0.45) !important;
+                    background: rgba(31,92,255,0.08) !important;
+                  }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+        
             for r in past:
                 imp_id = str(r["id"])
                 created = r.get("created_at")
                 row_count = int(r.get("row_count", 0) or 0)
                 tname = (r.get("tenant_name") or tenant_name or "").strip()
-
-                # pretty timestamp
+        
                 try:
                     created_str = created.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     created_str = str(created).replace("T", " ")[:16]
-
-                label = f"{created_str}\n{tname} · {row_count} Zeilen"
-
+        
                 is_selected = (st.session_state.selected_import_id == imp_id)
-
-                # Wrap in a div so we can style selected item via CSS
-                st.markdown(
-                    f"<div class='{ 'imp-selected' if is_selected else '' }'>",
-                    unsafe_allow_html=True
-                )
+        
+                # visual hint for selected WITHOUT extra wrappers
+                label = f"{created_str}  {'' if not is_selected else '✓'}\n{tname} · {row_count} Zeilen"
+        
                 if st.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
                     st.session_state.selected_import_id = imp_id
                     st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+
 
     # =========================
     # RESET
