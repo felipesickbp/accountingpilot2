@@ -3,7 +3,7 @@
    Streamlit app: Accounting Copilot / Burkhart & Partners
    Goals:
    - Improve readability (esp. important buttons)
-   - Softer “product UI” look
+   - Softer “product UI” look (like your colleague’s screenshots)
    - Keep app functionality untouched
    - Do NOT interfere with injected login system (.lp-* / .btn) in app.py
    ========================================================= */
@@ -30,7 +30,7 @@
   --text: #0F1D2B;
   --muted: rgba(15, 29, 43, 0.74);
 
-  /* Accents */
+  /* Accents (closer to colleague screenshots: purple → blue) */
   --accent-a: #8B5CF6;             /* purple */
   --accent-b: #2563EB;             /* blue */
   --accent-b-hover: #1D4ED8;
@@ -63,9 +63,10 @@ html, body{
   background: var(--bg-soft) !important;
 }
 
-/* Streamlit root container background
-   IMPORTANT: do NOT force with !important, so app.py can still paint login bg */
-div[data-testid="stAppViewContainer"]{
+/* Streamlit root containers
+   IMPORTANT: do NOT force background with !important here
+   so app.py can still paint login background when it injects its own CSS */
+[data-testid="stAppViewContainer"]{
   color: var(--text) !important;
   background:
     radial-gradient(1200px 520px at 18% 0%, rgba(139,92,246,0.10), transparent 58%),
@@ -73,7 +74,7 @@ div[data-testid="stAppViewContainer"]{
     linear-gradient(180deg, var(--bg-soft), var(--bg-soft-2));
 }
 
-/* Keep spacing tidy */
+/* Keep your own ui_shell spacing intact */
 .block-container{
   max-width: 1200px !important;
   padding-bottom: 3rem !important;
@@ -109,7 +110,7 @@ section[data-testid="stSidebar"] > div{
   padding-top: 12px !important;
 }
 
-/* Radio group */
+/* Radio group (sidebar steps) — make them look like pill options */
 section[data-testid="stSidebar"] [role="radiogroup"]{
   background: rgba(255,255,255,0.55);
   border: 1px solid rgba(15,29,43,0.08);
@@ -131,35 +132,35 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
   background: rgba(37,99,235,0.06) !important;
 }
 
-/* Selected */
+/* Selected (Streamlit uses aria-checked on input; we can style the label when it contains a checked input) */
 section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checked="true"]){
   background: linear-gradient(90deg, rgba(139,92,246,0.16), rgba(37,99,235,0.12)) !important;
   border: 1px solid rgba(37,99,235,0.20);
 }
 
 /* -----------------------------
-   Expanders / cards
+   Cards / containers
 ------------------------------ */
-div[data-testid="stExpander"]{
+[data-testid="stExpander"]{
   background: var(--card-soft) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-card) !important;
   box-shadow: var(--shadow-mini) !important;
 }
-div[data-testid="stExpander"] summary{
+[data-testid="stExpander"] summary{
   font-weight: 800 !important;
   color: var(--text) !important;
 }
 
-/* Standard text spacing */
+/* Give standard “blocks” a little more air */
 .stMarkdown, .stCaption{ line-height: 1.45; }
 
 /* -----------------------------
    Tables / DataFrames
 ------------------------------ */
-div[data-testid="stTable"] table,
+[data-testid="stTable"] table,
 .stDataFrame,
-div[data-testid="StyledDataFrame"]{
+[data-testid="StyledDataFrame"]{
   border: 1px solid var(--border) !important;
   border-radius: 14px !important;
   overflow: hidden !important;
@@ -167,12 +168,12 @@ div[data-testid="StyledDataFrame"]{
   box-shadow: var(--shadow-mini) !important;
 }
 
-div[data-testid="stDataFrameResizable"] thead tr th{
+[data-testid="stDataFrameResizable"] thead tr th{
   background: linear-gradient(180deg, rgba(245,247,250,1), rgba(245,247,250,0.70)) !important;
   color: var(--text) !important;
   font-weight: 800 !important;
 }
-div[data-testid="stDataFrameResizable"] tbody tr td{
+[data-testid="stDataFrameResizable"] tbody tr td{
   border-top: 1px solid rgba(15,29,43,0.06) !important;
 }
 
@@ -204,7 +205,7 @@ div[data-testid="stDataFrameResizable"] tbody tr td{
 }
 
 /* File uploader */
-div[data-testid="stFileUploaderDropzone"]{
+[data-testid="stFileUploaderDropzone"]{
   background: rgba(255,255,255,0.70) !important;
   border: 1px dashed rgba(15,29,43,0.22) !important;
   border-radius: 14px !important;
@@ -213,12 +214,13 @@ div[data-testid="stFileUploaderDropzone"]{
 
 /* -----------------------------
    Buttons (global)
+   Fix: improve contrast + make “important” buttons readable.
    IMPORTANT: Do NOT touch .btn / .lp-* because login CSS is injected in app.py.
 ------------------------------ */
 
-/* Primary buttons */
+/* Primary buttons: strong gradient like colleague screenshots */
 div[data-testid="stFormSubmitButton"] > button,
-div[data-testid^="baseButton-primary"] > button,
+[data-testid^="baseButton-primary"] > button,
 button[kind="primary"]{
   background: linear-gradient(90deg, var(--accent-a), var(--accent-b)) !important;
   color: var(--primary-ink) !important;
@@ -232,7 +234,7 @@ button[kind="primary"]{
 }
 
 div[data-testid="stFormSubmitButton"] > button:hover,
-div[data-testid^="baseButton-primary"] > button:hover,
+[data-testid^="baseButton-primary"] > button:hover,
 button[kind="primary"]:hover{
   filter: brightness(1.03) saturate(1.05);
   transform: translateY(-1px);
@@ -240,30 +242,30 @@ button[kind="primary"]:hover{
 }
 
 div[data-testid="stFormSubmitButton"] > button:disabled,
-div[data-testid^="baseButton-primary"] > button:disabled{
+[data-testid^="baseButton-primary"] > button:disabled{
   opacity: .65 !important;
   filter: none !important;
   box-shadow: none !important;
   transform: none !important;
 }
 
-/* Secondary / outline */
-div[data-testid^="baseButton-secondary"] > button,
+/* Secondary / outline: make text MUCH more readable than before */
+[data-testid^="baseButton-secondary"] > button,
 button[kind="secondary"]{
   background: rgba(255,255,255,0.92) !important;
-  color: #0B1320 !important;
+  color: #0B1320 !important;                      /* darker text for readability */
   border: 1px solid rgba(15,29,43,0.22) !important;
   border-radius: var(--radius-pill) !important;
   font-weight: 800 !important;
   box-shadow: var(--shadow-mini) !important;
 }
-div[data-testid^="baseButton-secondary"] > button:hover,
+[data-testid^="baseButton-secondary"] > button:hover,
 button[kind="secondary"]:hover{
   background: rgba(37,99,235,0.06) !important;
   border-color: rgba(37,99,235,0.28) !important;
 }
 
-/* Regular st.button */
+/* Regular st.button (non kind=primary/secondary) — also improve contrast */
 .stButton > button{
   background: rgba(255,255,255,0.92) !important;
   color: #0B1320 !important;
@@ -278,7 +280,7 @@ button[kind="secondary"]:hover{
   background: rgba(37,99,235,0.06) !important;
 }
 
-/* Ensure button label visibility */
+/* Make button labels always visible (sometimes Streamlit applies opacity) */
 .stButton > button span,
 div[data-testid="stFormSubmitButton"] > button span{
   opacity: 1 !important;
@@ -302,8 +304,40 @@ div[data-testid="stDownloadButton"] a:hover{
 }
 
 /* -----------------------------
+   Step flow row styling (your “first horizontal block”)
+------------------------------ */
+[data-testid="stHorizontalBlock"]:first-of-type{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+[data-testid="stHorizontalBlock"]:first-of-type > div{
+  flex: 0 0 auto;
+}
+
+[data-testid="stHorizontalBlock"]:first-of-type > div:nth-child(4){
+  margin-left: auto;
+}
+
+/* Step pills */
+[data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
+  background: rgba(255,255,255,0.86) !important;
+  color: #0B1320 !important;
+  border: 1px solid rgba(15,29,43,0.20) !important;
+  border-radius: var(--radius-pill) !important;
+  padding: 8px 14px !important;
+  font-weight: 900 !important;
+  box-shadow: var(--shadow-mini) !important;
+}
+[data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover{
+  background: rgba(37,99,235,0.06) !important;
+  border-color: rgba(37,99,235,0.28) !important;
+}
+
+/* -----------------------------
    SIMPLE LOGIN PAGE (simple .login-wrap version)
-   (Does NOT affect injected Amnis-like login .lp-*)
+   (Does NOT affect the injected Amnis-like login .lp-*)
 ------------------------------ */
 .login-wrap{
   width: min(560px, 92vw);
@@ -332,6 +366,8 @@ div[data-testid="stDownloadButton"] a:hover{
   margin: 0 0 1.35rem 0;
   line-height: 1.55;
 }
+
+/* CTA button used on simple login */
 a.cta{
   display: block;
   text-align: center;
@@ -351,6 +387,7 @@ a.cta:hover{
   box-shadow: 0 18px 40px rgba(37,99,235,.22), 0 16px 36px rgba(139,92,246,.14);
   filter: brightness(1.03) saturate(1.05);
 }
+
 .small-hint{
   opacity: .72;
   margin-top: 1rem;
@@ -361,6 +398,8 @@ a.cta:hover{
   font-weight: 800;
 }
 .small-hint a:hover{ text-decoration: underline; }
+
+/* Mobile tweaks */
 @media (max-width: 520px){
   .login-wrap{ padding: 28px 20px; border-radius: 18px; }
   .login-title{ font-size: 1.75rem; }
@@ -373,95 +412,3 @@ a.cta:hover{
 .btn, .btn-primary, .btn-secondary{
   /* intentionally left untouched */
 }
-
-/* =========================================================
-   TOPBAR (single source of truth)
-   Requires header HTML like:
-   <div class="bp-topbar"><div class="bp-topbar-inner"> ... </div></div>
-   ========================================================= */
-
-/* Optional: hide Streamlit toolbar icons */
-div[data-testid="stToolbar"] { display: none !important; }
-
-/* If any older header classes exist in markup, neutralize them */
-.app-header, .solid-header{
-  all: unset;
-}
-
-/* Full-width sticky bar */
-.bp-topbar{
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  width: 100%;
-
-  background: rgba(246,248,252,0.86);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-
-  border-bottom: 1px solid rgba(15,23,42,0.08);
-}
-
-/* Inner aligns to content width */
-.bp-topbar-inner{
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 10px 18px;
-
-  display: flex;
-  align-items: center;
-  gap: 12px;
-
-  min-height: 52px;
-}
-
-/* Left group */
-.bp-left{
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.bp-logo{
-  height: 26px;
-  width: auto;
-  display: block;
-}
-
-/* Right group (matches your HTML snippet) */
-.solid-right{
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Client pill */
-.client-pill{
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-
-  font-size: 12px;
-  font-weight: 800;
-  color: rgba(15,29,43,0.78);
-
-  border: 1px solid rgba(15,29,43,0.12);
-  background: rgba(255,255,255,0.70);
-  padding: 6px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-  box-shadow: 0 6px 16px rgba(15,29,43,0.05);
-}
-
-.client-pill b{
-  color: rgba(15,29,43,0.92);
-}
-
-@media (max-width: 900px){
-  .bp-topbar-inner{ padding: 10px 14px; }
-  .client-pill{ padding: 6px 9px; }
-}
-
-
