@@ -1,18 +1,15 @@
 # db.py
 import os, uuid, json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from sqlalchemy import create_engine, text
 
 def get_engine():
-    # choose ONE source:
-    # 1) Streamlit secrets:
     try:
         import streamlit as st
         url = st.secrets.get("DATABASE_URL") or st.secrets.get("connections", {}).get("sql", {}).get("url")
     except Exception:
         url = None
 
-    # 2) env var fallback
     url = url or os.getenv("DATABASE_URL")
     if not url:
         raise RuntimeError("Missing DATABASE_URL in secrets or env")
@@ -40,6 +37,40 @@ def init_db(engine):
             if s:
                 conn.execute(text(s))
 
+def _json_default(o):
+    """
+    Convert numpy/pandas/date types to JSON-serializable Python types.
+    """
+    # Avoid importing numpy/pandas globally
+    try:
+        import numpy as np
+        if isinstance(o, (np.integer,)):
+            return int(o)
+        if isinstance(o, (np.floating,)):
+            return float(o)
+        if isinstance(o, (np.bool_,)):
+            return bool(o)
+    except Exception:
+        pass
+
+    try:
+        import pandas as pd
+        if pd.isna(o):
+            return None
+        if isinstance(o, (pd.Timestamp,)):
+            # ISO string
+            return o.to_pydatetime().isoformat()
+    except Exception:
+        pass
+
+    if isinstance(o, (datetime,)):
+        return o.isoformat()
+    if isinstance(o, (date,)):
+        return o.isoformat()
+
+    # last-resort: stringify (keeps DB write from failing)
+    return str(o)
+
 def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=None, csv_bytes: bytes | None = None):
     import pandas as pd
 
@@ -53,6 +84,9 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
     imp_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
 
+    payload_json = json.dumps(payload, default=_json_default)
+    results_json = json.dumps(results, default=_json_default) if results is not None else None
+
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -65,8 +99,8 @@ def insert_import(engine, tenant_id: str, tenant_name: str, df_rows, results=Non
                 "tenant_id": tenant_id,
                 "tenant_name": tenant_name,
                 "row_count": row_count,
-                "payload_json": json.dumps(payload),
-                "results_json": json.dumps(results) if results is not None else None,
+                "payload_json": payload_json,
+                "results_json": results_json,
                 "csv_bytes": csv_bytes,
             }
         )
@@ -95,4 +129,5 @@ def get_import_csv(engine, import_id: str) -> bytes | None:
     if not row:
         return None
     return row["csv_bytes"]
+
 
