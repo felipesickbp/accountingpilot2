@@ -256,7 +256,7 @@ def _inject_local_css(file_path: str = "styles.css"):
     except Exception:
         pass
 
-
+_inject_local_css()
 
 # =========================
 # SCHEMA & HELPERS
@@ -760,7 +760,27 @@ def make_login_url():
     }
     return f"{AUTH_URL}?{urlencode(params)}"
 
+def render_login_page():
+    login_url = make_login_url()
+    st.markdown(
+        f"""
+        <div class="login-wrap">
+          <div class="login-title">🤖 Accounting Copilot</div>
+          <div class="login-sub">
+            Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
+          </div>
 
+          <a class="cta" href="{login_url}" target="_blank" rel="noopener noreferrer">
+            🔐 Mit bexio anmelden
+          </a>
+
+          <div class="small-hint">
+            Falls der Button nicht reagiert: <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link öffnen</a>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 def auth_header(token):
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -959,7 +979,6 @@ ensure_company_profile_loaded()
 # NO HEADER. NONE.
 sidebar_nav()
 sidebar_client_info()
-_inject_local_css()
 
 
 # =========================
