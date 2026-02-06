@@ -74,6 +74,35 @@ ui_shell()
 
 LOGO_PATH = Path("assets/logo.webp")
 
+def render_topbar():
+    # label you want on the right
+    client_label = st.session_state.get("company_name") or "—"
+
+    # logo base64
+    logo_b64 = ""
+    if LOGO_PATH.exists():
+        logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+
+    st.markdown(
+        f"""
+        <div class="bp-topbar">
+          <div class="bp-topbar-inner">
+            <div class="bp-left">
+              {"<img class='bp-logo' src='data:image/webp;base64," + logo_b64 + "' />" if logo_b64 else ""}
+              <div class="bp-title">BURKHART &amp; PARTNERS</div>
+            </div>
+
+            <div class="solid-right">
+              <div class="client-pill">
+                Logged in for <b>{client_label}</b>
+              </div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 def render_app_header(title="BURKHART & PARTNERS", show_client_pill=True, logo_px=28):
     # logo html
@@ -1061,6 +1090,7 @@ if time.time() > st.session_state.oauth.get("expires_at", 0):
 ensure_company_profile_loaded()
 
 render_app_header(show_client_pill=True)  # or False
+render_topbar()
 sidebar_nav()
 
 
