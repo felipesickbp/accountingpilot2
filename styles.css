@@ -1,55 +1,80 @@
 /* =========================================================
-   styles.css — DESIGN ONLY
-   Streamlit app: Accounting Copilot
-   - Safe global polish
-   - Improves simple login (.login-wrap) without breaking
-     the in-app injected Amnis-like login (.lp-*)
+   styles.css — DESIGN ONLY (SAFE)
+   Streamlit app: Accounting Copilot / Burkhart & Partners
+   Goals:
+   - Improve readability (esp. important buttons)
+   - Softer “product UI” look (like your colleague’s screenshots)
+   - Keep app functionality untouched
+   - Do NOT interfere with injected login system (.lp-* / .btn) in app.py
    ========================================================= */
+
+/* -----------------------------
+   Font
+------------------------------ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
 
 /* -----------------------------
    Brand tokens
 ------------------------------ */
 :root{
+  /* Base surfaces */
   --bg: #ffffff;
-  --bg-soft: #F6F8FC;
+  --bg-soft: #F7F6FF;              /* soft lilac-tinted canvas */
+  --bg-soft-2: #F4F8FF;            /* very light blue tint */
   --card: #FFFFFF;
-  --card-soft: #F5F7FA;
+  --card-soft: rgba(255,255,255,0.86);
 
+  /* Borders & text */
   --border: rgba(15, 29, 43, 0.10);
-  --border-strong: rgba(15, 29, 43, 0.16);
-
+  --border-strong: rgba(15, 29, 43, 0.18);
   --text: #0F1D2B;
   --muted: rgba(15, 29, 43, 0.74);
 
-  --primary: #0F4C81;
-  --primary-hover: #1F5D9E;
+  /* Accents (closer to colleague screenshots: purple → blue) */
+  --accent-a: #8B5CF6;             /* purple */
+  --accent-b: #2563EB;             /* blue */
+  --accent-b-hover: #1D4ED8;
+
+  /* Buttons */
+  --primary: var(--accent-b);
+  --primary-hover: var(--accent-b-hover);
   --primary-ink: #FFFFFF;
 
-  --outline: #CBD5E1;
-  --ring: rgba(15, 76, 129, 0.22);
-  --ring-strong: rgba(15, 76, 129, 0.34);
+  --outline: rgba(15, 29, 43, 0.18);
+  --ring: rgba(139, 92, 246, 0.18);
+  --ring-strong: rgba(37, 99, 235, 0.22);
 
+  /* Radii & shadows */
   --radius-card: 18px;
   --radius: 12px;
   --radius-pill: 999px;
 
-  --shadow: 0 12px 38px rgba(15, 29, 43, 0.10);
+  --shadow: 0 14px 48px rgba(15, 29, 43, 0.10);
   --shadow-soft: 0 10px 26px rgba(15, 29, 43, 0.08);
+  --shadow-mini: 0 6px 16px rgba(15, 29, 43, 0.06);
 }
 
 /* -----------------------------
    Base
 ------------------------------ */
 html, body{
-  background: var(--bg) !important;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   color: var(--text) !important;
+  background: var(--bg-soft) !important;
 }
 
+/* Streamlit root containers
+   IMPORTANT: do NOT force background with !important here
+   so app.py can still paint login background when it injects its own CSS */
 [data-testid="stAppViewContainer"]{
   color: var(--text) !important;
+  background:
+    radial-gradient(1200px 520px at 18% 0%, rgba(139,92,246,0.10), transparent 58%),
+    radial-gradient(1200px 520px at 92% 0%, rgba(37,99,235,0.10), transparent 58%),
+    linear-gradient(180deg, var(--bg-soft), var(--bg-soft-2));
 }
 
-/* Keep your own ui_shell spacing intact: don't fight app.py too hard */
+/* Keep your own ui_shell spacing intact */
 .block-container{
   max-width: 1200px !important;
   padding-bottom: 3rem !important;
@@ -58,20 +83,59 @@ html, body{
 /* Typography */
 h1, h2, h3, h4{
   color: var(--text) !important;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.25px;
 }
-
 p, label, .stMarkdown, .stCaption{
   color: var(--muted) !important;
 }
 
-a{
-  color: var(--text) !important;
-  text-decoration: none;
+/* Links */
+a{ color: var(--text) !important; text-decoration: none; }
+a:hover{ color: #1F2E44 !important; text-decoration: underline; }
+
+/* -----------------------------
+   Sidebar (Navigation polish)
+------------------------------ */
+section[data-testid="stSidebar"]{
+  background:
+    radial-gradient(800px 320px at 30% 0%, rgba(139,92,246,0.10), transparent 55%),
+    radial-gradient(800px 320px at 80% 20%, rgba(37,99,235,0.10), transparent 55%),
+    linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.70)) !important;
+  border-right: 1px solid var(--border) !important;
+  box-shadow: 8px 0 30px rgba(15,29,43,0.04);
 }
-a:hover{
-  color: #1F2E44 !important;
-  text-decoration: underline;
+
+/* Sidebar inner padding */
+section[data-testid="stSidebar"] > div{
+  padding-top: 12px !important;
+}
+
+/* Radio group (sidebar steps) — make them look like pill options */
+section[data-testid="stSidebar"] [role="radiogroup"]{
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(15,29,43,0.08);
+  border-radius: 14px;
+  padding: 10px 10px;
+  box-shadow: var(--shadow-mini);
+}
+
+/* Each radio option */
+section[data-testid="stSidebar"] [role="radiogroup"] label{
+  border-radius: 12px !important;
+  padding: 8px 10px !important;
+  margin: 2px 0 !important;
+  transition: background .12s ease, transform .06s ease;
+}
+
+/* Hover */
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
+  background: rgba(37,99,235,0.06) !important;
+}
+
+/* Selected (Streamlit uses aria-checked on input; we can style the label when it contains a checked input) */
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input[aria-checked="true"]){
+  background: linear-gradient(90deg, rgba(139,92,246,0.16), rgba(37,99,235,0.12)) !important;
+  border: 1px solid rgba(37,99,235,0.20);
 }
 
 /* -----------------------------
@@ -81,14 +145,15 @@ a:hover{
   background: var(--card-soft) !important;
   border: 1px solid var(--border) !important;
   border-radius: var(--radius-card) !important;
-  box-shadow: 0 6px 18px rgba(15,29,43,0.04) !important;
+  box-shadow: var(--shadow-mini) !important;
 }
-
-/* Expander header nicer */
 [data-testid="stExpander"] summary{
-  font-weight: 700 !important;
+  font-weight: 800 !important;
   color: var(--text) !important;
 }
+
+/* Give standard “blocks” a little more air */
+.stMarkdown, .stCaption{ line-height: 1.45; }
 
 /* -----------------------------
    Tables / DataFrames
@@ -100,15 +165,14 @@ a:hover{
   border-radius: 14px !important;
   overflow: hidden !important;
   background: #fff !important;
+  box-shadow: var(--shadow-mini) !important;
 }
 
 [data-testid="stDataFrameResizable"] thead tr th{
-  background: var(--card-soft) !important;
+  background: linear-gradient(180deg, rgba(245,247,250,1), rgba(245,247,250,0.70)) !important;
   color: var(--text) !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
 }
-
-/* Improve grid cell feel */
 [data-testid="stDataFrameResizable"] tbody tr td{
   border-top: 1px solid rgba(15,29,43,0.06) !important;
 }
@@ -122,112 +186,125 @@ a:hover{
 .stTextArea textarea,
 .stSelectbox div[data-baseweb="select"] input,
 .stSelectbox > div > div{
-  background: #fff !important;
+  background: rgba(255,255,255,0.92) !important;
   color: var(--text) !important;
-  border: 1px solid rgba(15,29,43,0.14) !important;
+  border: 1px solid rgba(15,29,43,0.16) !important;
   border-radius: var(--radius) !important;
+  box-shadow: 0 1px 0 rgba(15,29,43,0.02);
   transition: box-shadow .15s ease, border-color .15s ease, transform .05s ease;
 }
 
-/* Focus ring */
 .stTextInput input:focus,
 .stNumberInput input:focus,
 .stDateInput input:focus,
 .stTextArea textarea:focus,
 .stSelectbox div[data-baseweb="select"] input:focus{
-  border-color: rgba(15,76,129,0.40) !important;
-  box-shadow: 0 0 0 4px var(--ring) !important;
+  border-color: rgba(37,99,235,0.40) !important;
+  box-shadow: 0 0 0 4px var(--ring-strong) !important;
   outline: none !important;
 }
 
 /* File uploader */
 [data-testid="stFileUploaderDropzone"]{
-  background: var(--card-soft) !important;
-  border: 1px dashed rgba(15,29,43,0.18) !important;
+  background: rgba(255,255,255,0.70) !important;
+  border: 1px dashed rgba(15,29,43,0.22) !important;
   border-radius: 14px !important;
+  box-shadow: var(--shadow-mini);
 }
 
 /* -----------------------------
    Buttons (global)
-   IMPORTANT: Do NOT touch .btn / .lp-* because app.py injects login CSS.
+   Fix: improve contrast + make “important” buttons readable.
+   IMPORTANT: Do NOT touch .btn / .lp-* because login CSS is injected in app.py.
 ------------------------------ */
+
+/* Primary buttons: strong gradient like colleague screenshots */
 div[data-testid="stFormSubmitButton"] > button,
 [data-testid^="baseButton-primary"] > button,
 button[kind="primary"]{
-  background: var(--primary) !important;
+  background: linear-gradient(90deg, var(--accent-a), var(--accent-b)) !important;
   color: var(--primary-ink) !important;
-  border: 1px solid rgba(31,93,158,.45) !important;
+  border: 1px solid rgba(37,99,235,0.35) !important;
   border-radius: 14px !important;
   padding: 12px 18px !important;
-  font-weight: 800 !important;
+  font-weight: 900 !important;
   letter-spacing: .15px !important;
-  box-shadow: 0 10px 26px rgba(15,76,129,.22) !important;
+  box-shadow: 0 12px 28px rgba(37,99,235,.20), 0 10px 26px rgba(139,92,246,.14) !important;
   transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
 }
 
 div[data-testid="stFormSubmitButton"] > button:hover,
 [data-testid^="baseButton-primary"] > button:hover,
 button[kind="primary"]:hover{
-  background: var(--primary-hover) !important;
+  filter: brightness(1.03) saturate(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 16px 34px rgba(15,76,129,.26) !important;
-  filter: brightness(1.02);
+  box-shadow: 0 18px 40px rgba(37,99,235,.22), 0 16px 36px rgba(139,92,246,.16) !important;
 }
 
 div[data-testid="stFormSubmitButton"] > button:disabled,
 [data-testid^="baseButton-primary"] > button:disabled{
-  opacity: .6 !important;
+  opacity: .65 !important;
+  filter: none !important;
   box-shadow: none !important;
   transform: none !important;
 }
 
-/* Secondary */
+/* Secondary / outline: make text MUCH more readable than before */
 [data-testid^="baseButton-secondary"] > button,
 button[kind="secondary"]{
-  background: #fff !important;
-  color: var(--primary) !important;
-  border: 1px solid rgba(15,76,129,.55) !important;
+  background: rgba(255,255,255,0.92) !important;
+  color: #0B1320 !important;                      /* darker text for readability */
+  border: 1px solid rgba(15,29,43,0.22) !important;
   border-radius: var(--radius-pill) !important;
-  font-weight: 700 !important;
-  box-shadow: 0 6px 18px rgba(15,29,43,.06) !important;
+  font-weight: 800 !important;
+  box-shadow: var(--shadow-mini) !important;
 }
 [data-testid^="baseButton-secondary"] > button:hover,
 button[kind="secondary"]:hover{
-  background: rgba(15,76,129,.06) !important;
+  background: rgba(37,99,235,0.06) !important;
+  border-color: rgba(37,99,235,0.28) !important;
 }
 
-/* Regular st.button (non kind=primary/secondary) */
+/* Regular st.button (non kind=primary/secondary) — also improve contrast */
 .stButton > button{
-  background: #fff !important;
-  color: var(--text) !important;
-  border: 1px solid var(--outline) !important;
+  background: rgba(255,255,255,0.92) !important;
+  color: #0B1320 !important;
+  border: 1px solid rgba(15,29,43,0.22) !important;
   border-radius: var(--radius) !important;
-  padding: .55rem 1rem !important;
-  font-weight: 700 !important;
+  padding: .58rem 1.05rem !important;
+  font-weight: 800 !important;
+  box-shadow: 0 6px 16px rgba(15,29,43,0.06) !important;
 }
 .stButton > button:hover{
-  border-color: #94A3B8 !important;
+  border-color: rgba(37,99,235,0.30) !important;
+  background: rgba(37,99,235,0.06) !important;
+}
+
+/* Make button labels always visible (sometimes Streamlit applies opacity) */
+.stButton > button span,
+div[data-testid="stFormSubmitButton"] > button span{
+  opacity: 1 !important;
 }
 
 /* Download button */
 div[data-testid="stDownloadButton"] > button,
 div[data-testid="stDownloadButton"] a{
-  background: var(--primary) !important;
+  background: linear-gradient(90deg, var(--accent-a), var(--accent-b)) !important;
   color: #fff !important;
-  border: 1px solid rgba(31,93,158,.45) !important;
+  border: 1px solid rgba(37,99,235,0.35) !important;
   border-radius: 14px !important;
-  padding: .6rem 1.1rem !important;
-  font-weight: 800 !important;
+  padding: .65rem 1.15rem !important;
+  font-weight: 900 !important;
   text-decoration: none !important;
+  box-shadow: 0 12px 28px rgba(37,99,235,.18), 0 10px 26px rgba(139,92,246,.12) !important;
 }
 div[data-testid="stDownloadButton"] > button:hover,
 div[data-testid="stDownloadButton"] a:hover{
-  background: var(--primary-hover) !important;
+  filter: brightness(1.03) saturate(1.05);
 }
 
 /* -----------------------------
-   Step flow row styling
-   (kept close to your existing logic)
+   Step flow row styling (your “first horizontal block”)
 ------------------------------ */
 [data-testid="stHorizontalBlock"]:first-of-type{
   display: flex;
@@ -243,25 +320,25 @@ div[data-testid="stDownloadButton"] a:hover{
   margin-left: auto;
 }
 
+/* Step pills */
 [data-testid="stHorizontalBlock"]:first-of-type .stButton > button{
-  background: #fff !important;
-  color: var(--text) !important;
-  border: 1px solid var(--outline) !important;
+  background: rgba(255,255,255,0.86) !important;
+  color: #0B1320 !important;
+  border: 1px solid rgba(15,29,43,0.20) !important;
   border-radius: var(--radius-pill) !important;
   padding: 8px 14px !important;
-  font-weight: 800 !important;
+  font-weight: 900 !important;
+  box-shadow: var(--shadow-mini) !important;
 }
 [data-testid="stHorizontalBlock"]:first-of-type .stButton > button:hover{
-  border-color: #94A3B8 !important;
+  background: rgba(37,99,235,0.06) !important;
+  border-color: rgba(37,99,235,0.28) !important;
 }
 
-/* =========================================================
-   SIMPLE LOGIN PAGE (used by the later render_login_page())
-   Styles are scoped to .login-wrap, .cta, etc.
-   These do NOT affect the Amnis-like login (.lp-*) in app.py.
-   ========================================================= */
-
-/* Center card better if Streamlit container is present */
+/* -----------------------------
+   SIMPLE LOGIN PAGE (simple .login-wrap version)
+   (Does NOT affect the injected Amnis-like login .lp-*)
+------------------------------ */
 .login-wrap{
   width: min(560px, 92vw);
   margin: 7vh auto 0 auto;
@@ -272,13 +349,11 @@ div[data-testid="stDownloadButton"] a:hover{
   box-shadow: var(--shadow);
   transition: transform .14s ease, box-shadow .18s ease, border-color .18s ease;
 }
-
 .login-wrap:hover{
   transform: translateY(-2px);
   box-shadow: 0 18px 60px rgba(15,29,43,0.14);
   border-color: rgba(15,29,43,0.14);
 }
-
 .login-title{
   font-size: 2.0rem;
   font-weight: 900;
@@ -286,7 +361,6 @@ div[data-testid="stDownloadButton"] a:hover{
   letter-spacing: -0.35px;
   color: var(--text);
 }
-
 .login-sub{
   opacity: .84;
   margin: 0 0 1.35rem 0;
@@ -302,17 +376,16 @@ a.cta{
   font-weight: 900;
   letter-spacing: .2px;
   text-decoration: none !important;
-  border: 1px solid rgba(31,93,158,.45);
-  background: linear-gradient(180deg, var(--primary), var(--primary-hover));
+  border: 1px solid rgba(37,99,235,0.30);
+  background: linear-gradient(90deg, var(--accent-a), var(--accent-b));
   color: #fff !important;
-  box-shadow: 0 12px 28px rgba(15,76,129,.22);
+  box-shadow: 0 12px 28px rgba(37,99,235,.18), 0 10px 26px rgba(139,92,246,.12);
   transition: transform .08s ease, box-shadow .18s ease, filter .18s ease;
 }
-
 a.cta:hover{
   transform: translateY(-1px);
-  box-shadow: 0 18px 40px rgba(15,76,129,.26);
-  filter: brightness(1.02);
+  box-shadow: 0 18px 40px rgba(37,99,235,.22), 0 16px 36px rgba(139,92,246,.14);
+  filter: brightness(1.03) saturate(1.05);
 }
 
 .small-hint{
@@ -321,12 +394,10 @@ a.cta:hover{
   font-size: .95rem;
 }
 .small-hint a{
-  color: var(--primary) !important;
-  font-weight: 700;
+  color: var(--accent-b) !important;
+  font-weight: 800;
 }
-.small-hint a:hover{
-  text-decoration: underline;
-}
+.small-hint a:hover{ text-decoration: underline; }
 
 /* Mobile tweaks */
 @media (max-width: 520px){
@@ -335,18 +406,11 @@ a.cta:hover{
 }
 
 /* =========================================================
-   SAFETY: Do not override the injected login ("lp-*") system
+   SAFETY: do not override injected login ("lp-*") system
    ========================================================= */
 .lp-wrap, .lp-card, .lp-brand, .lp-actions, .lp-links, .lp-note,
 .btn, .btn-primary, .btn-secondary{
   /* intentionally left untouched */
 }
 
-
-/* Download (button or <a>) */
-div[data-testid="stDownloadButton"]>button,div[data-testid="stDownloadButton"] a{
-  background:var(--primary)!important;color:#fff!important;border:1px solid var(--primary-hover)!important;border-radius:12px!important;
-  padding:.6rem 1.1rem!important;font-weight:700!important;text-decoration:none!important;
-}
-div[data-testid="stDownloadButton"]>button:hover,div[data-testid="stDownloadButton"] a:hover{background:var(--primary-hover)!important;}
 
