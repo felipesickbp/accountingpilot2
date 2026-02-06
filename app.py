@@ -10,10 +10,6 @@ import re
 from pathlib import Path
 import textwrap
 
-
-
-
-
 load_dotenv(override=True)
 
 # =========================
@@ -42,6 +38,7 @@ API_V2 = "https://api.bexio.com/2.0"
 SCOPES = "openid profile email offline_access company_profile"
 
 st.set_page_config(page_title="Accounting Copilot (V 4.0)", page_icon="📘", layout="wide")
+
 def ui_shell():
     st.markdown(
         """
@@ -71,7 +68,6 @@ def ui_shell():
 
 ui_shell()
 
-
 LOGO_PATH = Path("assets/logo.webp")
 
 def render_solid_header(title="Accounting Copilot", logo_px=36):
@@ -92,7 +88,6 @@ def render_solid_header(title="Accounting Copilot", logo_px=36):
     else:
         client_label = "—"
 
-    # IMPORTANT: no indentation before <div> to avoid markdown code-block rendering
     st.markdown(
 f"""<div class="solid-header">
   <div class="solid-header-inner">
@@ -111,6 +106,31 @@ f"""<div class="solid-header">
         unsafe_allow_html=True,
     )
 
+# =========================
+# THEME CSS (optional)
+# =========================
+def _inject_local_css(file_path: str = "styles.css"):
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except Exception:
+        pass
+
+_inject_local_css()
+
+# =========================
+# AUTH HELPERS
+# =========================
+def make_login_url():
+    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
+    params = {
+        "client_id": BEXIO_CLIENT_ID,
+        "redirect_uri": BEXIO_REDIRECT_URI,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": state,
+    }
+    return f"{AUTH_URL}?{urlencode(params)}"
 
 def render_login_page():
     login_url = make_login_url()
@@ -120,25 +140,26 @@ def render_login_page():
     if LOGO_PATH.exists():
         logo_b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
 
-    # --- Amnis-like CSS: soft bg, centered card, clean typography, two CTAs ---
+    # IMPORTANT:
+    # We override global styles.css (even if it uses !important) by using very specific selectors + !important here.
     st.markdown(
         """
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-          /* Full app background */
-          div[data-testid="stAppViewContainer"] {
-            background: #f6f8fc;
-          }
+          /* Force clean background on login (wins against global theme) */
+          html, body { background: #f6f8fc !important; }
+          div[data-testid="stAppViewContainer"] { background: #f6f8fc !important; }
+          div[data-testid="stApp"] { background: transparent !important; }
 
           /* Hide Streamlit chrome on login */
-          header { display: none; }
-          #MainMenu { visibility: hidden; }
-          footer { visibility: hidden; }
+          header { display: none !important; }
+          #MainMenu { visibility: hidden !important; }
+          footer { visibility: hidden !important; }
 
           /* Hide sidebar ONLY on login page */
-          section[data-testid="stSidebar"] { display: none; }
-          div[data-testid="collapsedControl"] { display: none; }
+          section[data-testid="stSidebar"] { display: none !important; }
+          div[data-testid="collapsedControl"] { display: none !important; }
 
           /* Reduce top padding so it feels like a real web app */
           .block-container {
@@ -285,7 +306,6 @@ def render_login_page():
     </div>
     """
 
-    # You can swap the emoji for an inline SVG if you want
     st.markdown(
         brand_html
         + f"""
@@ -295,7 +315,6 @@ def render_login_page():
             <div class="lp-title">Einloggen</div>
             <div class="lp-sub">Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).</div>
 
-            <!-- Optional: fake fields for the Amnis look (purely visual) -->
             <div class="lp-field-label">Geschäftliche E-Mail</div>
             <div class="lp-field">Wie lautet Ihre geschäftliche E-Mail-Adresse?</div>
 
@@ -319,497 +338,6 @@ def render_login_page():
         </div>
         """,
         unsafe_allow_html=True,
-    )
-
-# =========================
-# THEME CSS (optional)
-# =========================
-def _inject_local_css(file_path: str = "styles.css"):
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except Exception:
-        pass
-
-_inject_local_css()
-
-# =========================
-# SCHEMA & HELPERS
-# =========================
-
-def _ensure_currency_code_map():
-    if st.session_state.get("currency_code_to_id"):
-        return
-
-    mp = {}
-
-    def _ingest(items):
-        for c in items or []:
-            try:
-                cid = int(c.get("id"))
-            except Exception:
-                continue
-
-            # bexio currency create uses field 'name' like 'JPY' (ISO) in many clients
-            code = (
-                c.get("name")
-                or c.get("code")
-                or c.get("currency_code")
-                or c.get("short_name")
-            )
-            if code:
-                mp.setdefault(str(code).upper().strip(), cid)
-
-    endpoints = [
-        f"{API_V3}/currencies",
-        f"{API_V3}/accounting/currencies",
-        f"{API_V2}/currencies",
-    ]
-
-    for url in endpoints:
-        try:
-            r = requests.get(url, headers=_auth() if "/3.0" in url else _auth_v2(), timeout=30)
-            if r.status_code == 401:
-                refresh_access_token()
-                r = requests.get(url, headers=_auth() if "/3.0" in url else _auth_v2(), timeout=30)
-            if r.status_code < 400:
-                data = r.json()
-                if isinstance(data, list):
-                    _ingest(data)
-                if mp:
-                    break
-        except Exception:
-            pass
-
-    st.session_state.currency_code_to_id = mp
-
-
-def _currency_id_from_input(val: str | int | None) -> int | None:
-    s = ("" if val is None else str(val)).strip()
-    if not s:
-        return int(DEFAULT_CURRENCY_ID)
-
-    # numeric currency_id allowed
-    try:
-        return int(float(s))
-    except Exception:
-        pass
-
-    code = s.upper()
-
-    # env override: BEXIO_CURRENCY_ID_EUR=2, etc.
-    env_key = f"BEXIO_CURRENCY_ID_{code}"
-    env_val = os.getenv(env_key)
-    if env_val:
-        try:
-            return int(env_val)
-        except Exception:
-            pass
-
-    _ensure_currency_code_map()
-    return st.session_state.get("currency_code_to_id", {}).get(code)
-
-
-# VAT helpers and defaults
-VAT_CODE_TO_RATE = {
-    "UN81": 0.081,  # Standard (8.1%)
-    "UR26": 0.026,  # Reduced
-    "US38": 0.038,  # Special
-}
-DEFAULT_VAT_INPUT_ACCOUNT_NO  = "1170"  # Vorsteuer
-DEFAULT_VAT_OUTPUT_ACCOUNT_NO = "2201"  # Umsatzsteuer (geschuldete MWST)
-
-def _parse_vat_rate(val) -> float | None:
-    """Accepts codes (UN81, UR26, …) or numeric (0.081 or 8.1 or '8.1%')."""
-    if val is None:
-        return None
-    s = str(val).strip()
-    if not s:
-        return None
-    up = s.upper()
-    if up in VAT_CODE_TO_RATE:
-        return VAT_CODE_TO_RATE[up]
-    try:
-        x = float(s.replace("%", "").replace(",", "."))
-        return (x / 100.0) if x > 1 else x
-    except Exception:
-        return None
-
-# Extended schema: add the two new columns at the END (as requested)
-REQUIRED_COLS = [
-    "csv_row", "buchungsnummer", "datum", "betrag", "soll", "haben", "beschreibung",
-    "mwst_code", "mwst_konto",
-    "currency", "exchange_rate",
-]
-
-def ensure_schema(df_in: pd.DataFrame | None) -> pd.DataFrame:
-    if df_in is None:
-        df_in = pd.DataFrame()
-    df = pd.DataFrame(columns=REQUIRED_COLS)
-    for c in REQUIRED_COLS:
-        df[c] = df_in[c] if c in df_in.columns else ""
-
-    # dtypes that play nicely with st.data_editor
-    try:
-        df["csv_row"] = pd.to_numeric(df["csv_row"], errors="coerce").astype("Int64")
-    except Exception:
-        df["csv_row"] = pd.Series([pd.NA] * len(df), dtype="Int64")
-
-    df["betrag"] = pd.to_numeric(df["betrag"], errors="coerce").astype(float)
-
-    # NEW
-    df["exchange_rate"] = pd.to_numeric(df["exchange_rate"], errors="coerce").astype(float)
-    df["currency"] = df["currency"].replace({None: ""}).fillna("").astype(str)
-
-    for c in ["buchungsnummer", "datum", "soll", "haben", "beschreibung", "mwst_code", "mwst_konto"]:
-        df[c] = df[c].replace({None: ""}).fillna("")
-        df[c] = df[c].astype(str)
-        df[c] = df[c].replace({"None": "", "nan": "", "<NA>": ""})
-
-    return df
-
-
-def _parse_date_to_iso(x: str, *, default_year: int | None = None, strict: bool = False) -> str:
-    """
-    Accepts:
-      - ISO: YYYY-MM-DD
-      - Swiss: DD.MM.YYYY / DD.MM.YY (optionally trailing dot)
-      - Swiss without year: DD.MM (only if strict=False; uses default_year/current year)
-
-    If strict=True:
-      - rejects DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, etc. to avoid day/month swaps
-      - rejects DD.MM without year
-    """
-    s = ("" if x is None else str(x)).strip()
-    if not s:
-        return ""
-
-    # normalize whitespace
-    s = re.sub(r"\s+", " ", s)
-
-    # 1) ISO: YYYY-MM-DD
-    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
-    if m:
-        y, mo, d = map(int, m.groups())
-        return dt_date(y, mo, d).isoformat()  # raises ValueError if invalid
-
-    # 2) Swiss: DD.MM.YYYY / DD.MM.YY (allow trailing dot)
-    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{2,4})\.?", s)
-    if m:
-        d, mo, y = m.groups()
-        d = int(d); mo = int(mo); y = int(y)
-        if y < 100:
-            # pick a deterministic century
-            y += 2000 if y <= 69 else 1900
-        return dt_date(y, mo, d).isoformat()
-
-    # 3) Swiss without year: DD.MM (optional trailing dot)
-    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.?", s)
-    if m:
-        if strict:
-            return ""  # force user to provide year in strict mode
-        d, mo = map(int, m.groups())
-        y = int(default_year or dt_date.today().year)
-        return dt_date(y, mo, d).isoformat()
-
-    # 4) Anything else: in strict mode, reject to avoid swaps
-    if strict:
-        return ""
-
-    # 5) Non-strict fallback (optional): try pandas/dayfirst for odd inputs
-    # (kept minimal, but still safer than trying month-first)
-    try:
-        d = pd.to_datetime(s, dayfirst=True, errors="coerce")
-        return "" if pd.isna(d) else d.date().isoformat()
-    except Exception:
-        return ""
-
-
-def _to_float(x) -> float:
-    if x is None:
-        return 0.0
-    s = str(x).strip().replace("’", "").replace("'", "")
-    try:
-        return float(s.replace(" ", "").replace(",", "."))
-    except Exception:
-        try:
-            return float(s)
-        except Exception:
-            return 0.0
-
-def resolve_account_id_from_number_or_id(val):
-    """
-    Accepts:
-      - Kontonummer like "1020", "1020-A", "10 20", "1'020"
-      - raw account_id like "12345"
-    Returns account_id (int) or None.
-    """
-    if val is None:
-        return None
-    raw = str(val).strip()
-    if raw == "":
-        return None
-
-    # Quick path: exact key
-    if raw in st.session_state.acct_map_by_number:
-        try:
-            return int(st.session_state.acct_map_by_number[raw])
-        except Exception:
-            pass
-
-    # Normalize possible kontonummer formats
-    norm = raw.split("-", 1)[0]
-    norm = norm.replace("’", "").replace("'", "").replace(" ", "")
-
-    if norm in st.session_state.acct_map_by_number:
-        try:
-            return int(st.session_state.acct_map_by_number[norm])
-        except Exception:
-            pass
-
-    # If it's an integer, assume it's already an account_id
-    try:
-        return int(norm)
-    except Exception:
-        return None
-
-
-def post_with_backoff(url, headers, payload, max_retries=5, base_sleep=0.8):
-    """POST with exponential backoff on 429/5xx. Returns (ok: bool, response_or_text)."""
-    for attempt in range(max_retries + 1):
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        # Auto refresh once on 401
-        if r.status_code == 401 and attempt == 0:
-            refresh_access_token()
-            r = requests.post(url, headers=headers, json=payload, timeout=30)
-
-        if r.status_code < 400:
-            return True, r
-
-        if r.status_code not in (429, 500, 502, 503, 504) or attempt == max_retries:
-            try:
-                return False, f"HTTP {r.status_code}: {r.text}"
-            except Exception:
-                return False, f"HTTP {r.status_code}"
-
-        sleep_s = base_sleep * (2 ** attempt) + random.uniform(0, 0.25)
-        time.sleep(sleep_s)
-
-    return False, "Max retries exceeded"
-
-def apply_keyword_rules_to_df(df: pd.DataFrame, rules: list[dict]) -> pd.DataFrame:
-    """Fill soll/haben based on keyword rules. Does NOT overwrite existing non-empty cells."""
-    if df is None or df.empty or not rules:
-        return df
-    out = df.copy()
-    for col in ["beschreibung", "soll", "haben"]:
-        if col not in out.columns:
-            out[col] = ""
-        out[col] = out[col].astype(str)
-
-    amt = pd.to_numeric(out.get("betrag", 0), errors="coerce").fillna(0)
-
-    for r in rules:
-        kw = str(r.get("keyword", "")).strip()
-        acct = str(r.get("account", "")).strip()
-        side = str(r.get("side", "haben")).strip().lower()
-        if not kw or not acct:
-            continue
-
-        mask_kw = out["beschreibung"].str.contains(kw, case=False, na=False)
-
-        if side == "soll":
-            empty = out["soll"].str.strip() == ""
-            out.loc[mask_kw & empty, "soll"] = acct
-        elif side == "haben":
-            empty = out["haben"].str.strip() == ""
-            out.loc[mask_kw & empty, "haben"] = acct
-        else:
-            empty_s = out["soll"].str.strip() == ""
-            empty_h = out["haben"].str.strip() == ""
-            out.loc[mask_kw & (amt > 0) & empty_s, "soll"] = acct
-            out.loc[mask_kw & (amt < 0) & empty_h, "haben"] = acct
-
-    return out
-
-
-def _make_unique_columns(cols, prefix="col"):
-    out, seen = [], {}
-    for i, c in enumerate(cols, start=1):
-        name = str(c).strip()
-        if name == "" or name.lower().startswith("unnamed:"):
-            name = f"{prefix}_{i}"
-        base = name
-        if base in seen:
-            seen[base] += 1
-            name = f"{base}__{seen[base]}"
-        else:
-            seen[base] = 1
-        out.append(name)
-    return out
-
-def read_csv_or_excel(uploaded_file, encoding_preference: str, decimal: str) -> pd.DataFrame:
-    """
-    Robust reader for CSV or Excel (xlsx disguised as csv).
-    - Ensures unique, non-empty column names
-    - Reserves 'csv_row' name (renames existing to 'csv_row_file')
-    - Tries multiple encodings and delimiters
-    - If header parsing fails, falls back to header=None and synthesizes column names
-    Returns a pandas DataFrame (never None) or raises ValueError.
-    """
-    raw = uploaded_file.getvalue()
-
-    # Detect Excel by magic number
-    if len(raw) >= 4 and raw[:4] == b"PK\x03\x04":
-        try:
-            df = pd.read_excel(io.BytesIO(raw), dtype=str, keep_default_na=False)
-        except Exception as e:
-            raise ValueError(f"Excel-Datei konnte nicht gelesen werden: {e}")
-
-        df.columns = _make_unique_columns(df.columns, prefix="col")
-        if "csv_row" in df.columns:
-            df = df.rename(columns={"csv_row": "csv_row_file"})
-        return df
-
-    # CSV path
-    encodings  = [encoding_preference, "utf-8-sig", "cp1252", "latin-1", "utf-16", "utf-16le", "utf-16be"]
-    delimiters = [None, ";", ",", "\t", "|"]
-    errors = []
-
-    for enc in encodings:
-        for sep in delimiters:
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(raw),
-                    sep=sep, engine="python", encoding=enc, decimal=decimal,
-                    dtype=str, keep_default_na=False, header=0
-                )
-                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-                    df.columns = _make_unique_columns(df.columns, prefix="col")
-                    if "csv_row" in df.columns:
-                        df = df.rename(columns={"csv_row": "csv_row_file"})
-                    return df
-            except Exception as e:
-                errors.append(f"header=0 {enc}/{repr(sep)} → {e}")
-
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(raw),
-                    sep=sep, engine="python", encoding=enc, decimal=decimal,
-                    dtype=str, keep_default_na=False, header=None
-                )
-                if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-                    df.columns = _make_unique_columns([f"col_{i+1}" for i in range(df.shape[1])], prefix="col")
-                    if "csv_row" in df.columns:
-                        df = df.rename(columns={"csv_row": "csv_row_file"})
-                    return df
-            except Exception as e:
-                errors.append(f"header=None {enc}/{repr(sep)} → {e}")
-
-    msg = "CSV konnte nicht gelesen werden: " + "; ".join(errors[:6])
-    if len(errors) > 6:
-        msg += " …"
-    raise ValueError(msg)
-
-# =========================
-# SESSION DEFAULTS
-# =========================
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "oauth" not in st.session_state:
-    st.session_state.oauth = {}
-if "acct_map_by_number" not in st.session_state:
-    st.session_state.acct_map_by_number = {}
-if "acct_df" not in st.session_state:
-    st.session_state.acct_df = None
-if "selected_bank_number" not in st.session_state:
-    st.session_state.selected_bank_number = None
-if "bank_csv_df" not in st.session_state:
-    st.session_state.bank_csv_df = None
-if "bank_csv_view_df" not in st.session_state:
-    st.session_state.bank_csv_view_df = None
-if "bank_start_row" not in st.session_state:
-    st.session_state.bank_start_row = 1
-if "bank_map" not in st.session_state:
-    st.session_state.bank_map = {"datum": None, "betrag": None, "beschreibung": None}
-if "bulk_df" not in st.session_state:
-    st.session_state.bulk_df = None
-if "company_profile" not in st.session_state:
-    st.session_state.company_profile = None
-if "company_name" not in st.session_state:
-    st.session_state.company_name = ""
-if "company_id" not in st.session_state:
-    st.session_state.company_id = ""
-
-
-DEFAULT_CURRENCY_CODE = "CHF"
-DEFAULT_CURRENCY_ID = 1
-DEFAULT_CURRENCY_FACTOR = 1.0
-
-# =========================
-# SIDEBAR NAV
-# =========================
-STEP_LABELS = {
-    1: "1) Kontenplan",
-    2: "2) Bankdatei",
-    3: "3) Kontrolle & Import",
-}
-
-def sidebar_nav():
-    st.sidebar.markdown("### Navigation")
-    step_names = [STEP_LABELS[1], STEP_LABELS[2], STEP_LABELS[3]]
-    current_name = STEP_LABELS.get(st.session_state.step, STEP_LABELS[1])
-
-    chosen = st.sidebar.radio(" ", step_names, index=step_names.index(current_name))
-
-    new_step = {v: k for k, v in STEP_LABELS.items()}[chosen]
-    if new_step != st.session_state.step:
-        st.session_state.step = new_step
-        st.rerun()
-
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🔁 Assistent zurücksetzen", use_container_width=True):
-        for k in ["acct_map_by_number","acct_df","selected_bank_number","bank_csv_df",
-                  "bank_csv_view_df","bulk_df","bank_map","bank_start_row","bulk_grid"]:
-            if k in st.session_state:
-                del st.session_state[k]
-        st.session_state.step = 1
-        st.rerun()
-
-# =========================
-# AUTH HELPERS
-# =========================
-def make_login_url():
-    state = "anti-csrf-" + base64.urlsafe_b64encode(os.urandom(12)).decode("utf-8")
-    params = {
-        "client_id": BEXIO_CLIENT_ID,
-        "redirect_uri": BEXIO_REDIRECT_URI,
-        "response_type": "code",
-        "scope": SCOPES,
-        "state": state,
-    }
-    return f"{AUTH_URL}?{urlencode(params)}"
-
-def render_login_page():
-    login_url = make_login_url()
-    st.markdown(
-        f"""
-        <div class="login-wrap">
-          <div class="login-title">🤖 Accounting Copilot</div>
-          <div class="login-sub">
-            Verbinde dein bexio Konto, um Banktransaktionen schnell als Buchungen zu posten (inkl. MWST).
-          </div>
-
-          <a class="cta" href="{login_url}" target="_blank" rel="noopener noreferrer">
-            🔐 Mit bexio anmelden
-          </a>
-
-          <div class="small-hint">
-            Falls der Button nicht reagiert: <a href="{login_url}" target="_blank" rel="noopener noreferrer">Login-Link öffnen</a>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
     )
 
 def auth_header(token):
