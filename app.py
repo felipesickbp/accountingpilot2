@@ -778,12 +778,11 @@ def sidebar_nav():
         if "selected_import_id" not in st.session_state:
             st.session_state.selected_import_id = None
 
-        # CSS: make Streamlit buttons look like clean clickable cards
+        # CSS (sidebar only): card row + compact icon buttons
         st.sidebar.markdown(
             """
             <style>
-              /* target buttons inside our sidebar expander only */
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] button[kind="secondary"],
+              /* Main card buttons inside sidebar expander */
               section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button{
                 width: 100% !important;
                 text-align: left !important;
@@ -800,10 +799,21 @@ def sidebar_nav():
                 border-color: rgba(31,92,255,0.45) !important;
                 background: rgba(31,92,255,0.08) !important;
               }
-              /* selected style */
-              section[data-testid="stSidebar"] div[data-testid="stExpander"] .imp-selected > button{
-                border-color: rgba(31,92,255,0.90) !important;
-                background: rgba(31,92,255,0.12) !important;
+
+              /* Make download/delete icon buttons compact */
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stDownloadButton > button,
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton.icon-btn > button{
+                padding: 10px 0 !important;
+                text-align: center !important;
+                border-radius: 10px !important;
+                font-weight: 900 !important;
+              }
+
+              /* Keep icons dark on light buttons */
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stDownloadButton > button *,
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton.icon-btn > button *{
+                color: #0F1D2B !important;
+                opacity: 1 !important;
               }
             </style>
             """,
@@ -811,71 +821,28 @@ def sidebar_nav():
         )
 
         with st.sidebar.expander("Letzte Imports anzeigen", expanded=True):
-            # CSS: tighten spacing + style selected via data-testid + key selector
-            st.markdown(
-                """
-                <style>
-                  /* remove the extra vertical whitespace Streamlit adds around markdown in the expander */
-                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stMarkdown { margin: 0 !important; }
-                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .element-container { margin: 0 !important; }
-                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton { margin: 0 !important; }
-        
-                  /* base "card button" style */
-                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button{
-                    width: 100% !important;
-                    text-align: left !important;
-                    white-space: normal !important;
-                    line-height: 1.25 !important;
-                    border-radius: 12px !important;
-                    padding: 10px 12px !important;
-                    margin: 6px 0 !important;             /* keep small consistent gap */
-                    border: 1px solid rgba(49,51,63,0.14) !important;
-                    background: rgba(255,255,255,0.55) !important;
-                    box-shadow: 0 6px 16px rgba(15,29,43,0.05) !important;
-                  }
-        
-                  section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button:hover{
-                    border-color: rgba(31,92,255,0.45) !important;
-                    background: rgba(31,92,255,0.08) !important;
-                  }
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
-        
             for r in past:
                 imp_id = str(r["id"])
                 created = r.get("created_at")
                 row_count = int(r.get("row_count", 0) or 0)
                 tname = (r.get("tenant_name") or tenant_name or "").strip()
-            
-                try:
-                    created_str = created.strftime("%Y-%m-%d %H:%M")
-                except Exception:
-                    created_str = str(created).replace("T", " ")[:16]
-            
+
+                # created_at is stored as ISO string in db.py; show first 16 chars
+                created_str = str(created).replace("T", " ")[:16]
+
                 is_selected = (st.session_state.selected_import_id == imp_id)
-            
                 label = f"{created_str}{' ✓' if is_selected else ''}\n{tname} · {row_count} Zeilen"
-            
-                # 3 columns: card / download / delete
+
                 c_main, c_dl, c_del = st.columns([10, 1.4, 1.2], gap="small")
-            
-                # MAIN "card" button (select)
+
+                # Select (card)
                 if c_main.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
                     st.session_state.selected_import_id = imp_id
                     st.rerun()
-            
-                # DOWNLOAD icon button (CSV)
+
+                # Download
                 try:
-                    csv_obj = get_import_csv(engine, import_id=imp_id)
-            
-                    # support both return types:
-                    if isinstance(csv_obj, tuple) and len(csv_obj) == 2:
-                        csv_bytes, fname = csv_obj
-                    else:
-                        csv_bytes, fname = csv_obj, f"import_{tenant_id}_{imp_id}.csv"
-            
+                    csv_bytes, fname = get_import_csv(engine, import_id=imp_id)
                     c_dl.download_button(
                         "⬇️",
                         data=csv_bytes,
@@ -886,19 +853,24 @@ def sidebar_nav():
                         help="CSV herunterladen",
                     )
                 except Exception:
-                    # If CSV missing, still render a disabled-ish placeholder
+                    # render disabled placeholder
                     c_dl.button("⬇️", key=f"imp_dl_disabled_{imp_id}", use_container_width=True, disabled=True)
-            
-                # DELETE icon button (DB delete)
-                if c_del.button("✖", key=f"imp_del_{imp_id}", use_container_width=True, help="Import löschen"):
+
+                # Delete
+                # make it a tiny "icon style" button via class hook
+                c_del.markdown('<div class="stButton icon-btn">', unsafe_allow_html=True)
+                do_del = c_del.button("✖", key=f"imp_del_{imp_id}", use_container_width=True, help="Import löschen")
+                c_del.markdown('</div>', unsafe_allow_html=True)
+
+                if do_del:
                     try:
-                        delete_import(engine, tenant_id=tenant_id, import_id=imp_id)
-            
-                        # if you deleted the selected one, clear selection
-                        if st.session_state.get("selected_import_id") == imp_id:
-                            st.session_state.selected_import_id = None
-            
-                        st.rerun()
+                        deleted = delete_import(engine, tenant_id=tenant_id, import_id=imp_id)
+                        if deleted:
+                            if st.session_state.get("selected_import_id") == imp_id:
+                                st.session_state.selected_import_id = None
+                            st.rerun()
+                        else:
+                            st.sidebar.warning("Nichts gelöscht (evtl. falscher Mandant?).")
                     except Exception as e:
                         st.sidebar.error(f"Löschen fehlgeschlagen: {e}")
 
