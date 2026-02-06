@@ -1669,10 +1669,6 @@ elif st.session_state.step == 3:
     if submitted:
         rows = st.session_state.bulk_df.copy()
     
-        st.write("DEBUG: bulk_df rows:", len(st.session_state.bulk_df))
-        st.write("DEBUG: rows copied for import:", len(rows))
-        st.dataframe(rows[EDIT_COLS].head(30), use_container_width=True, hide_index=True)
-    
         if rows.empty:
             st.warning("Keine Zeilen im Gitter.")
         else:
