@@ -728,12 +728,29 @@ STEP_LABELS = {
 }
 
 def sidebar_nav():
+    from pathlib import Path
+    import streamlit as st
+
+    # =========================
+    # LOGO (top-left)
+    # =========================
+    logo_path = Path("assets/logo.webp")
+    if logo_path.exists():
+        st.sidebar.image(str(logo_path), width=160)
+
     # --- Selected bexio company (mandant) ---
     company = (st.session_state.get("company_name") or "").strip()
     cid = (st.session_state.get("company_id") or "").strip()
 
     if company:
-        st.sidebar.caption(f"🏢 Mandant: **{company}**" + (f"  \nID: {cid}" if cid else ""))
+        # cleaner + no "Mandant:" duplication elsewhere if you remove the main caption
+        st.sidebar.markdown(
+            f"<div style='margin-top:4px; margin-bottom:6px; opacity:0.85; font-size:13px;'>"
+            f"🏢 <b>{company}</b>"
+            f"{f'<br/><span style=\"opacity:0.7;\">ID: {cid}</span>' if cid else ''}"
+            f"</div>",
+            unsafe_allow_html=True
+        )
     else:
         st.sidebar.caption("🏢 Mandant: —")
 
@@ -751,7 +768,7 @@ def sidebar_nav():
         st.rerun()
 
     # =========================
-    # IMPORT HISTORY (per tenant) — clickable rows (no buttons)
+    # IMPORT HISTORY (per tenant) — clickable rows (no extra buttons)
     # =========================
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📥 Vergangene Imports")
@@ -768,32 +785,36 @@ def sidebar_nav():
     if not past:
         st.sidebar.caption("Noch keine Imports gespeichert.")
     else:
-        # ensure state exists
         if "selected_import_id" not in st.session_state:
             st.session_state.selected_import_id = None
 
-        # little CSS to make it look like clickable cards
+        # CSS: make Streamlit buttons look like clean clickable cards
         st.sidebar.markdown(
             """
             <style>
-              .imp-item{
-                border: 1px solid rgba(49,51,63,0.12);
-                border-radius: 12px;
-                padding: 10px 12px;
-                margin: 8px 0;
-                background: rgba(255,255,255,0.03);
-                cursor: pointer;
+              /* target buttons inside our sidebar expander only */
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] button[kind="secondary"],
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button{
+                width: 100% !important;
+                text-align: left !important;
+                white-space: normal !important;
+                line-height: 1.25 !important;
+                border-radius: 12px !important;
+                padding: 10px 12px !important;
+                margin: 6px 0 !important;
+                border: 1px solid rgba(49,51,63,0.14) !important;
+                background: rgba(255,255,255,0.55) !important;
+                box-shadow: 0 6px 16px rgba(15,29,43,0.05) !important;
               }
-              .imp-item:hover{
-                border-color: rgba(31,92,255,0.45);
-                background: rgba(31,92,255,0.06);
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .stButton > button:hover{
+                border-color: rgba(31,92,255,0.45) !important;
+                background: rgba(31,92,255,0.08) !important;
               }
-              .imp-item.selected{
-                border-color: rgba(31,92,255,0.9);
-                background: rgba(31,92,255,0.10);
+              /* selected style */
+              section[data-testid="stSidebar"] div[data-testid="stExpander"] .imp-selected > button{
+                border-color: rgba(31,92,255,0.90) !important;
+                background: rgba(31,92,255,0.12) !important;
               }
-              .imp-date{ font-size: 12px; font-weight: 700; opacity: 0.9; margin: 0; }
-              .imp-meta{ font-size: 12px; opacity: 0.75; margin: 2px 0 0 0; }
             </style>
             """,
             unsafe_allow_html=True,
@@ -812,15 +833,19 @@ def sidebar_nav():
                 except Exception:
                     created_str = str(created).replace("T", " ")[:16]
 
-                is_selected = (st.session_state.selected_import_id == imp_id)
-                cls = "imp-item selected" if is_selected else "imp-item"
-
-                # Use st.button for click handling, but style it like a card.
-                # Streamlit buttons are the most reliable way to trigger state changes.
                 label = f"{created_str}\n{tname} · {row_count} Zeilen"
+
+                is_selected = (st.session_state.selected_import_id == imp_id)
+
+                # Wrap in a div so we can style selected item via CSS
+                st.markdown(
+                    f"<div class='{ 'imp-selected' if is_selected else '' }'>",
+                    unsafe_allow_html=True
+                )
                 if st.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
                     st.session_state.selected_import_id = imp_id
                     st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
 
     # =========================
     # RESET
