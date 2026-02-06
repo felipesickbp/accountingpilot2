@@ -346,6 +346,51 @@ _inject_local_css()
 # SCHEMA & HELPERS
 # =========================
 
+
+def render_app_header(show_client_pill=True):
+    # base64 logo
+    logo_html = ""
+    if LOGO_PATH.exists():
+        b64 = base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+        logo_html = f'<img class="bp-logo" src="data:image/webp;base64,{b64}" alt="Burkhart & Partners" />'
+
+    client_name = (st.session_state.get("company_name") or "").strip()
+    client_id   = (st.session_state.get("company_id") or "").strip()
+
+    if client_name and client_id:
+        client_label = f"{client_name} (ID {client_id})"
+    elif client_name:
+        client_label = client_name
+    elif client_id:
+        client_label = f"Client ID {client_id}"
+    else:
+        client_label = "—"
+
+    st.markdown(
+        f"""
+        <div class="bp-topbar">
+          <div class="bp-topbar-inner">
+            <div class="bp-left">
+              {logo_html}
+            </div>
+
+            {""
+              if not show_client_pill else
+              f'''
+              <div class="solid-right">
+                <div class="client-pill">
+                  Logged in for <b>{client_label}</b>
+                </div>
+              </div>
+              '''
+            }
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _ensure_currency_code_map():
     if st.session_state.get("currency_code_to_id"):
         return
