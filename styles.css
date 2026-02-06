@@ -69,9 +69,21 @@ html, body{
 [data-testid="stAppViewContainer"]{
   color: var(--text) !important;
   background:
+    /* Fade to white at the very top so Streamlit's header bar blends in */
+    linear-gradient(180deg,
+      rgba(255,255,255,1) 0px,
+      rgba(255,255,255,1) 56px,
+      rgba(255,255,255,0.90) 120px,
+      rgba(255,255,255,0.00) 260px
+    ),
     radial-gradient(1200px 520px at 18% 0%, rgba(139,92,246,0.10), transparent 58%),
     radial-gradient(1200px 520px at 92% 0%, rgba(37,99,235,0.10), transparent 58%),
     linear-gradient(180deg, var(--bg-soft), var(--bg-soft-2));
+}
+
+/* Optional: try to make Streamlit header transparent (may or may not apply depending on version) */
+header[data-testid="stHeader"]{
+  background: rgba(255,255,255,0.0) !important;
 }
 
 /* Keep your own ui_shell spacing intact */
@@ -98,6 +110,12 @@ a:hover{ color: #1F2E44 !important; text-decoration: underline; }
 ------------------------------ */
 section[data-testid="stSidebar"]{
   background:
+    /* subtle fade to white at the very top for consistency */
+    linear-gradient(180deg,
+      rgba(255,255,255,1) 0px,
+      rgba(255,255,255,0.85) 80px,
+      rgba(255,255,255,0.70) 220px
+    ),
     radial-gradient(800px 320px at 30% 0%, rgba(139,92,246,0.10), transparent 55%),
     radial-gradient(800px 320px at 80% 20%, rgba(37,99,235,0.10), transparent 55%),
     linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.70)) !important;
@@ -412,3 +430,4 @@ a.cta:hover{
 .btn, .btn-primary, .btn-secondary{
   /* intentionally left untouched */
 }
+
