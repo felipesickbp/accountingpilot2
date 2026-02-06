@@ -990,9 +990,9 @@ def ensure_company_profile_loaded(force: bool = False):
                 break
 
     if not (st.session_state.get("company_name") or "").strip():
-    st.session_state.company_name = name
+        st.session_state.company_name = name
     if not (st.session_state.get("company_id") or "").strip():
-    st.session_state.company_id = cid
+        st.session_state.company_id = cid
 
 
 # =========================
