@@ -9,26 +9,33 @@ def auth_header(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 def fetch_company_profile(access_token: str) -> dict | None:
-    """Try v2 first, then v3 fallback."""
+    """Try v2 first, then v3 fallback. Returns a dict (normalized)."""
     headers = auth_header(access_token)
 
-    # v2 is most common
+    def _normalize(x):
+        # bexio may return [ { ... } ]
+        if isinstance(x, list) and x:
+            return x[0] if isinstance(x[0], dict) else None
+        return x if isinstance(x, dict) else None
+
+    # v2
     try:
         r = requests.get(f"{API_V2}/company_profile", headers=headers, timeout=20)
         if r.status_code < 400:
-            return r.json()
+            return _normalize(r.json())
     except Exception:
         pass
 
-    # v3 fallback
+    # v3
     try:
         r = requests.get(f"{API_V3}/company_profile", headers=headers, timeout=20)
         if r.status_code < 400:
-            return r.json()
+            return _normalize(r.json())
     except Exception:
         pass
 
     return None
+
 
 def set_company_from_tokens(tokens: dict) -> None:
     """
