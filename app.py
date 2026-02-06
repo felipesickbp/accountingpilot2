@@ -1658,34 +1658,7 @@ elif st.session_state.step == 3:
         _ensure_tax_code_map()
         return st.session_state.get("tax_code_to_id", {}).get(code)
 
-    # === DEBUG BUTTON: raw JSON for today's manual entries ===
-    if st.button("Debug: raw JSON for today's entries- Peace"):
-        try:
-            r = requests.get(
-                MANUAL_ENTRIES_V3,
-                headers=_auth(),
-                params={"limit": 2000},
-                timeout=30,
-            )
-            st.write("status manual_entries:", r.status_code)
-            data = r.json()
-
-            if isinstance(data, list) and data:
-                today_str = dt_date.today().isoformat()
-                st.write("Heute:", today_str)
-
-                todays_entries = [e for e in data if e.get("date") == today_str]
-
-                if not todays_entries:
-                    st.write("Keine Buchungen mit heutigem Datum gefunden.")
-                else:
-                    st.write(f"{len(todays_entries)} Buchung(en) mit heutigem Datum gefunden.")
-                    for e in todays_entries:
-                        st.json(e)
-            else:
-                st.write("Antwort:", data)
-        except Exception as e:
-            st.write("manual_entries raw-json error:", str(e))
+  
 
     if submitted:
         rows = st.session_state.bulk_df.copy()
