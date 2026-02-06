@@ -848,20 +848,60 @@ def sidebar_nav():
                 created = r.get("created_at")
                 row_count = int(r.get("row_count", 0) or 0)
                 tname = (r.get("tenant_name") or tenant_name or "").strip()
-        
+            
                 try:
                     created_str = created.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     created_str = str(created).replace("T", " ")[:16]
-        
+            
                 is_selected = (st.session_state.selected_import_id == imp_id)
-        
-                # visual hint for selected WITHOUT extra wrappers
-                label = f"{created_str}  {'' if not is_selected else '✓'}\n{tname} · {row_count} Zeilen"
-        
-                if st.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
+            
+                label = f"{created_str}{' ✓' if is_selected else ''}\n{tname} · {row_count} Zeilen"
+            
+                # 3 columns: card / download / delete
+                c_main, c_dl, c_del = st.columns([10, 1.4, 1.2], gap="small")
+            
+                # MAIN "card" button (select)
+                if c_main.button(label, key=f"imp_pick_{imp_id}", use_container_width=True):
                     st.session_state.selected_import_id = imp_id
                     st.rerun()
+            
+                # DOWNLOAD icon button (CSV)
+                try:
+                    csv_obj = get_import_csv(engine, import_id=imp_id)
+            
+                    # support both return types:
+                    if isinstance(csv_obj, tuple) and len(csv_obj) == 2:
+                        csv_bytes, fname = csv_obj
+                    else:
+                        csv_bytes, fname = csv_obj, f"import_{tenant_id}_{imp_id}.csv"
+            
+                    c_dl.download_button(
+                        "⬇️",
+                        data=csv_bytes,
+                        file_name=fname,
+                        mime="text/csv",
+                        key=f"imp_dl_{imp_id}",
+                        use_container_width=True,
+                        help="CSV herunterladen",
+                    )
+                except Exception:
+                    # If CSV missing, still render a disabled-ish placeholder
+                    c_dl.button("⬇️", key=f"imp_dl_disabled_{imp_id}", use_container_width=True, disabled=True)
+            
+                # DELETE icon button (DB delete)
+                if c_del.button("✖", key=f"imp_del_{imp_id}", use_container_width=True, help="Import löschen"):
+                    try:
+                        delete_import(engine, tenant_id=tenant_id, import_id=imp_id)
+            
+                        # if you deleted the selected one, clear selection
+                        if st.session_state.get("selected_import_id") == imp_id:
+                            st.session_state.selected_import_id = None
+            
+                        st.rerun()
+                    except Exception as e:
+                        st.sidebar.error(f"Löschen fehlgeschlagen: {e}")
+
 
 
     # =========================
