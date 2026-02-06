@@ -1526,16 +1526,16 @@ elif st.session_state.step == 3:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "buchungsnummer": st.column_config.TextColumn("number (auto if empty)"),
-                "datum":          st.column_config.TextColumn("date (YYYY-MM-DD; flexible parsing)"),
-                "beschreibung":   st.column_config.TextColumn("label / description"),
+                "buchungsnummer": st.column_config.TextColumn("ID"),
+                "datum":          st.column_config.TextColumn("date"),
+                "beschreibung":   st.column_config.TextColumn("label"),
                 "betrag":         st.column_config.NumberColumn("amount", min_value=0.0, step=0.05, format="%.2f"),
-                "currency":       st.column_config.TextColumn("currency (ISO like CHF/EUR or currency_id)"),
-                "exchange_rate":  st.column_config.NumberColumn("exchange rate (currency_factor)", min_value=0.0, step=0.0001, format="%.6f"),
-                "soll":           st.column_config.TextColumn("debit (Kontonummer or account_id)"),
-                "haben":          st.column_config.TextColumn("credit (Kontonummer or account_id)"),
-                "mwst_code":      st.column_config.TextColumn("MWST code (UN81 / VM81 / VB81 / BZM81)"),
-                "mwst_konto":     st.column_config.TextColumn("MWST Konto (optional; 3xxx/6xxx if you want to override)"),
+                "currency":       st.column_config.TextColumn("currency"),
+                "exchange_rate":  st.column_config.NumberColumn("ex. rate", min_value=0.0, step=0.0001, format="%.6f"),
+                "soll":           st.column_config.TextColumn("debit"),
+                "haben":          st.column_config.TextColumn("credit"),
+                "mwst_code":      st.column_config.TextColumn("MWST code"),
+                "mwst_konto":     st.column_config.TextColumn("MWST Kto"),
             }
         )
         colA, colB = st.columns(2)
