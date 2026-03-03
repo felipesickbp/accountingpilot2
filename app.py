@@ -1,5 +1,3 @@
-#app.py
-
 import os, time, base64, io
 import pandas as pd
 import streamlit as st
@@ -14,15 +12,10 @@ import textwrap
 from helpers import set_company_from_tokens
 from db import get_engine, init_db, insert_import, list_imports, get_import_csv, delete_import
 
+load_dotenv(override=True)
 
 engine = get_engine()
 init_db(engine)
-
-
-
-
-
-load_dotenv(override=True)
 
 # =========================
 # ENV + OAUTH HELPERS
